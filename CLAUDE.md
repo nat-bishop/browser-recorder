@@ -9,11 +9,18 @@ Browser-agents records user browser interactions and converts them to replayable
 ## Structure
 
 ```
-src/browser_agents/
-├── __init__.py      # Version and exports
-├── models.py        # Pydantic models for recorded events
-├── recorder.py      # CDP-based capture + CLI
-└── playback.py      # Replay recordings
+browser-agents/
+├── src/browser_agents/
+│   ├── __init__.py      # Version and exports
+│   ├── cli.py           # Combined CLI entry point
+│   ├── models.py        # Pydantic models for recorded events
+│   ├── recorder.py      # CDP-based capture
+│   └── playback.py      # Replay recordings
+├── tests/
+│   ├── conftest.py      # Shared fixtures
+│   ├── test_models.py   # Unit tests - Pydantic validation
+│   └── test_cli.py      # CLI tests - argument handling
+└── recordings/          # JSONL storage
 ```
 
 ## Environment Setup
@@ -27,24 +34,66 @@ uv sync --extra dev
 
 # Install Playwright browsers (first time)
 uv run playwright install chromium
-
-# Run any command
-uv run python -m browser_agents.recorder record https://example.com
 ```
 
-## Commands
+## CLI Usage
 
 ```bash
-uv sync --extra dev                    # Install/update all deps
-uv run python -m browser_agents.recorder record <url>  # Start recording
-uv run python -m browser_agents.playback <file>        # Replay recording
+# Record browser interactions
+uv run browser-agents record https://example.com
+uv run browser-agents record https://example.com --output ./my-recordings
+
+# Replay a recording
+uv run browser-agents replay recordings/abc123.jsonl
+uv run browser-agents replay recordings/abc123.jsonl --headless
+
+# Help
+uv run browser-agents --help
+uv run browser-agents record --help
 ```
+
+## Testing
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run only fast tests (skip browser tests)
+uv run pytest -m "not slow"
+
+# Run specific test file
+uv run pytest tests/test_models.py -v
+
+# Run with coverage
+uv run pytest --cov=browser_agents
+```
+
+### Test Structure
+
+| File | Purpose | Speed |
+|------|---------|-------|
+| `test_models.py` | Pydantic model validation | Fast |
+| `test_cli.py` | CLI argument handling | Fast |
+| `test_recording.py` | Full browser integration | Slow (marked `@pytest.mark.slow`) |
+
+### Writing Tests
+
+- **Unit tests**: Test models, parsing, pure functions
+- **CLI tests**: Use `typer.testing.CliRunner` - no browser needed
+- **Integration tests**: Mark with `@pytest.mark.slow` and `@pytest.mark.browser`
+- **Fixtures**: Add shared fixtures to `conftest.py`
 
 ## Code Quality
 
 Pre-commit hooks run automatically on `git commit`:
 - `ruff` - Linting and formatting
 - `mypy` - Type checking
+
+```bash
+# Manual runs
+uv run ruff check src/ tests/ --fix
+uv run mypy src/
+```
 
 ## Principles
 
@@ -94,3 +143,4 @@ print(content)
 - Abstracting before there's duplication
 - Documenting aspirational features as if they exist
 - Hardcoding values that should be in models
+- Brittle tests that test implementation details

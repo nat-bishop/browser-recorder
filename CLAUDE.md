@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-Guidance for Claude Code when working in this repository.
-
 ## Project Overview
 
 Browser-agents records user browser interactions and converts them to replayable automations (and eventually AI agent tools).
@@ -19,21 +15,9 @@ browser-agents/
 ├── tests/
 │   ├── conftest.py      # Shared fixtures
 │   ├── test_models.py   # Unit tests - Pydantic validation
-│   └── test_cli.py      # CLI tests - argument handling
+│   ├── test_cli.py      # CLI tests - argument handling
+│   └── test_browser.py  # Integration tests - browser (slow)
 └── recordings/          # JSONL storage
-```
-
-## Environment Setup
-
-Requires Python 3.11-3.13 (not 3.14 - future LangChain incompatibility).
-Uses [uv](https://docs.astral.sh/uv/) for dependency management.
-
-```bash
-# Install dependencies
-uv sync --extra dev
-
-# Install Playwright browsers (first time)
-uv run playwright install chromium
 ```
 
 ## CLI Usage
@@ -74,7 +58,14 @@ uv run pytest --cov=browser_agents
 |------|---------|-------|
 | `test_models.py` | Pydantic model validation | Fast |
 | `test_cli.py` | CLI argument handling | Fast |
-| `test_recording.py` | Full browser integration | Slow (marked `@pytest.mark.slow`) |
+| `test_browser.py` | Full browser integration | Slow (marked `@pytest.mark.slow`) |
+
+### Test Markers
+
+- `@pytest.mark.slow` - Tests that take >1s (browser tests)
+- `@pytest.mark.browser` - Tests requiring Playwright browsers
+
+Use `pytest -m "not slow"` for fast CI runs.
 
 ### Writing Tests
 
@@ -85,7 +76,6 @@ uv run pytest --cov=browser_agents
 
 ## Code Quality
 
-Pre-commit hooks run automatically on `git commit`:
 - `ruff` - Linting and formatting
 - `mypy` - Type checking
 

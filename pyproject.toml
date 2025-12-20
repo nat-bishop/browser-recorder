@@ -28,7 +28,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src/browser_agents"]
 
 [tool.ruff]
 line-length = 100

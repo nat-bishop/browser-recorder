@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: |
-  Use after completing any significant implementation, before committing. Reviews code for quality issues: CLAUDE.md compliance, Playwright best practices, selector robustness, async correctness, and Pydantic patterns. Uses confidence scoring (0-100) to report only high-priority issues (>=80).
+  PROACTIVELY reviews code after significant implementations. MUST BE USED after completing features, fixes, or refactors. Reviews for CLAUDE.md compliance, Playwright best practices, selector robustness, async correctness, and Pydantic patterns. Uses confidence scoring (0-100) to report only high-priority issues (>=80).
 
   <example>
   Context: User just finished implementing a new feature

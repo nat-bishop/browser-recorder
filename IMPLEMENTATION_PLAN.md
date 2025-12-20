@@ -128,6 +128,18 @@ async def checkout(shipping_address: str) -> ActionResult:
 
 **Phase 2 Complete** - Recording and playback are working with full test coverage.
 
+### Demo Mode (Phase 2 Enhancement)
+
+Visual demo mode added for reviewing recordings with human-friendly playback:
+- Injected SVG arrow cursor that follows mouse movements
+- Smooth cursor movement using Playwright's steps interpolation
+- Configurable delay between events (`--delay`)
+- Configurable movement speed (`--speed`)
+- Click animation effect
+- slowMo for smoother Playwright operations
+
+Usage: `uv run browser-agents replay recording.jsonl --demo`
+
 ### Test Coverage (33 tests, all passing)
 - Unit tests: Models, CLI argument handling
 - Integration tests: Playback, recording capture, full roundtrip

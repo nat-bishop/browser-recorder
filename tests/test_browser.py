@@ -18,7 +18,7 @@ import pytest
 from playwright.async_api import async_playwright
 
 from browser_agents.models import RecordedEvent
-from browser_agents.playback import replay_recording
+from browser_agents.playback import _replay_event, replay_recording
 from browser_agents.recorder import RECORDER_SCRIPT
 
 # Mark all tests in this file as slow and requiring a browser
@@ -70,6 +70,30 @@ class TestPlaybackIntegration:
         screenshot = recordings_dir / "bad_selector_error_0.png"
         assert screenshot.exists(), "Screenshot should be saved on failure"
         assert screenshot.stat().st_size > 0, "Screenshot should not be empty"
+
+    async def test_replay_type_event_fills_input(self, recordings_dir: Path) -> None:
+        """Replay a type event correctly fills the input using selector."""
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+
+            # Set up a page with an input field
+            await page.set_content('<input id="test-input" />')
+
+            # Replay the type event directly
+            event = RecordedEvent(
+                timestamp=1.0,
+                event_type="type",
+                selector="#test-input",
+                value="hello world",
+            )
+            result = await _replay_event(page, event)
+
+            # Verify
+            assert result is True, "Type event should succeed"
+            assert await page.input_value("#test-input") == "hello world"
+
+            await browser.close()
 
 
 class TestRecordingIntegration:

@@ -64,6 +64,13 @@ class TestReplayCommand:
         result = runner.invoke(app, ["replay", "--help"])
         assert "--headless" in result.stdout or "-H" in result.stdout
 
+    def test_replay_accepts_demo_flag(self) -> None:
+        """Replay accepts --demo flag and related options."""
+        result = runner.invoke(app, ["replay", "--help"])
+        assert "--demo" in result.stdout or "-d" in result.stdout
+        assert "--delay" in result.stdout
+        assert "--speed" in result.stdout
+
 
 class TestRecordCommand:
     """Tests for record command argument handling."""

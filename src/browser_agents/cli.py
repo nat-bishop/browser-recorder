@@ -12,7 +12,11 @@ from pathlib import Path
 
 import typer
 
-from browser_agents.playback import replay_recording
+from browser_agents.playback import (
+    DEFAULT_DELAY,
+    DEFAULT_MOUSE_STEPS,
+    replay_recording,
+)
 from browser_agents.recorder import BrowserRecorder, _save_recording
 
 app = typer.Typer(
@@ -49,13 +53,45 @@ def record(
 def replay(
     recording: Path = typer.Argument(..., help="Path to recording JSONL file"),
     headless: bool = typer.Option(False, "--headless", "-H", help="Run in headless mode"),
+    demo: bool = typer.Option(
+        False,
+        "--demo",
+        "-d",
+        help="Visual demo mode with cursor indicator and smooth movement",
+    ),
+    delay: float = typer.Option(
+        DEFAULT_DELAY,
+        "--delay",
+        help="Seconds between events in demo mode",
+    ),
+    speed: int = typer.Option(
+        DEFAULT_MOUSE_STEPS,
+        "--speed",
+        help="Mouse movement smoothness (steps, higher = slower)",
+    ),
 ) -> None:
-    """Replay a recorded browser session."""
+    """Replay a recorded browser session.
+
+    Use --demo for visual review with a visible cursor and smooth movement.
+    """
     if not recording.exists():
         typer.echo(f"Recording not found: {recording}", err=True)
         raise typer.Exit(1)
 
-    success, total = asyncio.run(replay_recording(recording, headless))
+    # Demo mode implies visible browser
+    if demo and headless:
+        typer.echo("Warning: --demo requires visible browser, ignoring --headless")
+        headless = False
+
+    success, total = asyncio.run(
+        replay_recording(
+            recording,
+            headless=headless,
+            demo=demo,
+            delay=delay,
+            mouse_steps=speed,
+        )
+    )
 
     typer.echo(f"\nReplay complete: {success}/{total} events succeeded")
     if success < total:

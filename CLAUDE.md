@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Project Overview
 
 Browser-agents records user browser interactions and converts them to replayable automations (and eventually AI agent tools).
@@ -9,6 +13,7 @@ browser-agents/
 ├── src/browser_agents/
 │   ├── __init__.py      # Version and exports
 │   ├── cli.py           # Combined CLI entry point
+│   ├── demo.py          # Visual demo mode (cursor, smooth movement)
 │   ├── models.py        # Pydantic models for recorded events
 │   ├── recorder.py      # Event capture via injected JS
 │   └── playback.py      # Replay recordings
@@ -30,6 +35,10 @@ uv run browser-agents record https://example.com --output ./my-recordings
 # Replay a recording
 uv run browser-agents replay recordings/abc123.jsonl
 uv run browser-agents replay recordings/abc123.jsonl --headless
+
+# Visual demo mode (slow playback with cursor indicator)
+uv run browser-agents replay recordings/abc123.jsonl --demo
+uv run browser-agents replay recordings/abc123.jsonl --demo --delay 0.5 --speed 30
 
 # Help
 uv run browser-agents --help

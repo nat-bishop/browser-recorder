@@ -1,4 +1,4 @@
-"""CDP-based browser event recorder with CLI."""
+"""Browser event recorder using injected JavaScript listeners."""
 
 import asyncio
 import json
@@ -7,6 +7,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import typer
 from playwright.async_api import Page, async_playwright
@@ -15,9 +16,91 @@ from browser_agents.models import RecordedEvent, Recording
 
 app = typer.Typer(help="Record browser interactions for automation.")
 
+# JavaScript injected into pages to capture user events
+RECORDER_SCRIPT = """
+(() => {
+    // Prevent double-injection
+    if (window.__recorderInitialized) return;
+    window.__recorderInitialized = true;
+
+    // Generate a CSS selector for an element
+    function getSelector(el) {
+        if (!el || el === document.body || el === document.documentElement) return null;
+
+        // Prefer data-testid
+        if (el.dataset && el.dataset.testid) {
+            return `[data-testid="${el.dataset.testid}"]`;
+        }
+
+        // Try id (if not auto-generated looking)
+        if (el.id && !el.id.match(/^[0-9]|^:r[0-9]/)) {
+            return `#${el.id}`;
+        }
+
+        // Try aria-label
+        const ariaLabel = el.getAttribute('aria-label');
+        if (ariaLabel) {
+            return `[aria-label="${ariaLabel}"]`;
+        }
+
+        // Try name attribute for form elements
+        if (el.name && ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(el.tagName)) {
+            return `${el.tagName.toLowerCase()}[name="${el.name}"]`;
+        }
+
+        // Build a selector from tag + classes
+        let sel = el.tagName.toLowerCase();
+        if (el.className && typeof el.className === 'string') {
+            const classes = el.className.trim().split(/\\s+/).filter(c => !c.match(/^[0-9]/)).slice(0, 2);
+            if (classes.length) sel += '.' + classes.join('.');
+        }
+        return sel;
+    }
+
+    // Click listener (capture phase to get all clicks before they're stopped)
+    document.addEventListener('click', (e) => {
+        if (window.__recordEvent) {
+            window.__recordEvent({
+                type: 'click',
+                selector: getSelector(e.target),
+                x: Math.round(e.clientX),
+                y: Math.round(e.clientY)
+            });
+        }
+    }, true);
+
+    // Input listener for form fields (captures the final value)
+    document.addEventListener('input', (e) => {
+        if (window.__recordEvent && e.target && e.target.tagName) {
+            const selector = getSelector(e.target);
+            window.__recordEvent({
+                type: 'input',
+                selector: selector,
+                value: e.target.value || ''
+            });
+        }
+    }, true);
+
+    // Scroll listener (debounced to avoid spam)
+    let scrollTimeout;
+    window.addEventListener('scroll', () => {
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            if (window.__recordEvent) {
+                window.__recordEvent({
+                    type: 'scroll',
+                    scrollX: Math.round(window.scrollX),
+                    scrollY: Math.round(window.scrollY)
+                });
+            }
+        }, 150);
+    }, true);
+})();
+"""
+
 
 class BrowserRecorder:
-    """Records browser events via CDP."""
+    """Records browser events via injected JavaScript listeners."""
 
     def __init__(self, start_url: str, output_dir: Path) -> None:
         self.start_url = start_url
@@ -26,92 +109,80 @@ class BrowserRecorder:
         self.events: list[RecordedEvent] = []
         self.started_at = datetime.now(UTC)
         self._running = True
+        self._page: Page | None = None
 
     def _add_event(self, event: RecordedEvent) -> None:
         """Add event and print for visibility."""
         self.events.append(event)
-        typer.echo(f"  [{event.event_type}] {event.selector or event.url or ''}")
+        # Build display string
+        detail = event.selector or event.url or event.value or ""
+        if len(detail) > 50:
+            detail = detail[:47] + "..."
+        typer.echo(f"  [{event.event_type}] {detail}")
 
-    async def _setup_cdp_listeners(self, page: Page) -> None:
-        """Set up CDP event listeners for recording."""
-        cdp = await page.context.new_cdp_session(page)
+    async def _handle_page_event(self, event_data: dict[str, Any]) -> None:
+        """Handle events received from injected page script."""
+        event_type = event_data.get("type")
 
-        # Track page navigations
-        page.on(
-            "framenavigated",
-            lambda frame: self._add_event(
+        if event_type == "click":
+            self._add_event(
                 RecordedEvent(
                     timestamp=time.time(),
-                    event_type="navigate",
-                    url=frame.url,
+                    event_type="click",
+                    selector=event_data.get("selector"),
+                    x=event_data.get("x"),
+                    y=event_data.get("y"),
                 )
             )
-            if frame == page.main_frame
-            else None,
-        )
+        elif event_type == "input":
+            self._add_event(
+                RecordedEvent(
+                    timestamp=time.time(),
+                    event_type="type",
+                    selector=event_data.get("selector"),
+                    value=event_data.get("value"),
+                )
+            )
+        elif event_type == "scroll":
+            self._add_event(
+                RecordedEvent(
+                    timestamp=time.time(),
+                    event_type="scroll",
+                    scroll_x=event_data.get("scrollX"),
+                    scroll_y=event_data.get("scrollY"),
+                )
+            )
 
-        # Listen for clicks via CDP
-        async def on_click(params: dict) -> None:  # type: ignore[type-arg]
-            if params.get("type") == "mousePressed" and params.get("button") == "left":
-                x, y = int(params.get("x", 0)), int(params.get("y", 0))
-                # Try to get selector at click position
-                selector = await self._get_selector_at_point(page, x, y)
+    async def _setup_event_capture(self, page: Page) -> None:
+        """Set up event capture via injected JavaScript."""
+        self._page = page
+
+        # Expose callback to receive events from page JavaScript
+        await page.expose_function("__recordEvent", self._handle_page_event)
+
+        # Inject event listeners - runs automatically on every navigation
+        await page.add_init_script(RECORDER_SCRIPT)
+
+        # Also run immediately for the current page
+        try:
+            await page.evaluate(RECORDER_SCRIPT)
+        except Exception:
+            # CSP may block inline scripts on some sites - that's OK
+            # add_init_script will work on subsequent navigations
+            pass
+
+        # Track page navigations via Playwright's built-in event
+        def on_navigate(frame: Any) -> None:
+            if frame == page.main_frame:
                 self._add_event(
                     RecordedEvent(
                         timestamp=time.time(),
-                        event_type="click",
-                        selector=selector,
-                        x=x,
-                        y=y,
+                        event_type="navigate",
+                        url=frame.url,
                     )
                 )
 
-        await cdp.send("Input.enable")
-        cdp.on("Input.dispatchMouseEvent", on_click)
-
-        # Listen for keyboard input
-        async def on_key(params: dict) -> None:  # type: ignore[type-arg]
-            if params.get("type") == "keyDown":
-                key = params.get("key", "")
-                # Only record actual character input, not modifiers
-                if len(key) == 1:
-                    self._add_event(
-                        RecordedEvent(
-                            timestamp=time.time(),
-                            event_type="type",
-                            value=key,
-                        )
-                    )
-
-        cdp.on("Input.dispatchKeyEvent", on_key)
-
-    async def _get_selector_at_point(self, page: Page, x: int, y: int) -> str | None:
-        """Get a CSS selector for the element at given coordinates."""
-        try:
-            selector = await page.evaluate(
-                """([x, y]) => {
-                const el = document.elementFromPoint(x, y);
-                if (!el) return null;
-
-                // Prefer data-testid
-                if (el.dataset.testid) return `[data-testid="${el.dataset.testid}"]`;
-
-                // Try id
-                if (el.id) return `#${el.id}`;
-
-                // Build a selector from tag + classes
-                let sel = el.tagName.toLowerCase();
-                if (el.className && typeof el.className === 'string') {
-                    const classes = el.className.trim().split(/\\s+/).slice(0, 2);
-                    if (classes.length) sel += '.' + classes.join('.');
-                }
-                return sel;
-            }""",
-                [x, y],
-            )
-            return selector
-        except Exception:
-            return None
+        page.on("framenavigated", on_navigate)
 
     async def record(self) -> Recording:
         """Start recording and wait for user to stop."""
@@ -126,7 +197,7 @@ class BrowserRecorder:
             context = await browser.new_context()
             page = await context.new_page()
 
-            await self._setup_cdp_listeners(page)
+            await self._setup_event_capture(page)
             await page.goto(self.start_url)
 
             # Wait for Ctrl+C

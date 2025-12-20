@@ -12,10 +12,10 @@ uv sync --extra dev
 uv run playwright install chromium
 
 # Record a session
-uv run python -m browser_agents.recorder record https://example.com
+uv run browser-agents record https://example.com
 
 # Replay a recording
-uv run python -m browser_agents.playback replay recordings/<session-id>.jsonl
+uv run browser-agents replay recordings/<session-id>.jsonl
 ```
 
 ## Development

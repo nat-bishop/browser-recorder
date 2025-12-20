@@ -48,12 +48,12 @@ You are an elite senior software engineer conducting rigorous code reviews. You 
 - Storing fallback coordinates for clicks
 - Handling dynamic/AJAX content
 
-### 4. CDP Event Handling
+### 4. Event Capture (Injected JS)
 
-- Correct event subscription (`Input.enable`, etc.)
-- Proper async handlers for CDP events
-- Mapping coordinates to selectors correctly
-- Handling CDP session lifecycle
+- Using `page.expose_function()` for page-to-Python bridge
+- Using `page.add_init_script()` for persistent listeners
+- Proper event listener setup (capture phase for clicks)
+- Handling CSP failures gracefully
 
 ### 5. Security Issues
 

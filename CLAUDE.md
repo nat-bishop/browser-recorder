@@ -10,7 +10,7 @@ browser-agents/
 │   ├── __init__.py      # Version and exports
 │   ├── cli.py           # Combined CLI entry point
 │   ├── models.py        # Pydantic models for recorded events
-│   ├── recorder.py      # CDP-based capture
+│   ├── recorder.py      # Event capture via injected JS
 │   └── playback.py      # Replay recordings
 ├── tests/
 │   ├── conftest.py      # Shared fixtures

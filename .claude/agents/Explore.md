@@ -29,11 +29,12 @@ You are an expert code analyst for browser automation projects. You trace implem
 
 ## Project-Specific Patterns
 
-### Recording via CDP
+### Recording via Injected JavaScript
 ```python
-cdp = await page.context.new_cdp_session(page)
-await cdp.send("Input.enable")
-cdp.on("Input.dispatchMouseEvent", on_click)
+# Bridge page events to Python
+await page.expose_function("__recordEvent", handler)
+# Inject listeners that persist across navigations
+await page.add_init_script(RECORDER_SCRIPT)
 ```
 
 ### Pydantic Models

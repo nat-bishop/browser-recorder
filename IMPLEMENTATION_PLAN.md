@@ -2,26 +2,27 @@
 
 High-level roadmap for browser-agents. Each phase builds on the previous.
 
-## Phase 1: Recording Foundation (MVP)
+## Phase 1: Recording Foundation (MVP) ✅
 
 **Goal:** Record browser interactions to JSONL files.
 
 - [x] Project setup (pyproject.toml, CLAUDE.md)
-- [ ] Pydantic models for events (`RecordedEvent`, `Recording`)
-- [ ] CDP-based capture via Playwright
-- [ ] JSONL storage (append-only, crash-safe)
-- [ ] CLI to start/stop recording (`uv run python -m browser_agents.recorder`)
+- [x] Pydantic models for events (`RecordedEvent`, `Recording`)
+- [x] CDP-based capture via Playwright
+- [x] JSONL storage (append-only)
+- [x] CLI (`uv run browser-agents record <url>`)
 
 **Success:** Run recorder, click around a site, get valid JSONL output.
 
-## Phase 2: Playback
+## Phase 2: Playback ✅
 
 **Goal:** Replay recorded sessions reliably.
 
-- [ ] Load JSONL and validate with Pydantic
-- [ ] Execute actions via Playwright
-- [ ] Success/failure reporting
-- [ ] Screenshot on failure for debugging
+- [x] Load JSONL and validate with Pydantic
+- [x] Execute actions via Playwright
+- [x] Success/failure reporting
+- [x] Screenshot on failure for debugging
+- [x] CLI (`uv run browser-agents replay <file>`)
 
 **Success:** Record a session, replay it, same result.
 
@@ -59,4 +60,9 @@ High-level roadmap for browser-agents. Each phase builds on the previous.
 
 ## Current Focus
 
-**Phase 1** - Get recording working end-to-end.
+**Testing & Validation** - Verify the recording/playback cycle works reliably before moving to Phase 3.
+
+Next steps:
+1. Test the workflow manually
+2. Implement integration tests in `tests/test_browser.py`
+3. Fix any issues found during testing

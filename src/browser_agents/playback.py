@@ -28,7 +28,10 @@ async def _replay_event(page: Page, event: RecordedEvent) -> bool:
             return True
 
         elif event.event_type == "type":
-            if event.value:
+            if event.selector and event.value is not None:
+                await page.fill(event.selector, event.value)
+            elif event.value:
+                # Fallback: type without selector (legacy recordings)
                 await page.keyboard.type(event.value)
             return True
 

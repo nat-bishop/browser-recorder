@@ -59,11 +59,6 @@ class TestReplayCommand:
         # Error message may be in stdout or stderr, check combined output
         assert "not found" in result.output.lower()
 
-    def test_replay_accepts_headless_flag(self) -> None:
-        """Replay accepts --headless flag (doesn't error on flag itself)."""
-        result = runner.invoke(app, ["replay", "--help"])
-        assert "--headless" in result.stdout or "-H" in result.stdout
-
     def test_replay_accepts_demo_flag(self) -> None:
         """Replay accepts --demo flag and related options."""
         result = runner.invoke(app, ["replay", "--help"])

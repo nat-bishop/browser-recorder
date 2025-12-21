@@ -52,7 +52,6 @@ def record(
 @app.command()
 def replay(
     recording: Path = typer.Argument(..., help="Path to recording JSONL file"),
-    headless: bool = typer.Option(False, "--headless", "-H", help="Run in headless mode"),
     demo: bool = typer.Option(
         False,
         "--demo",
@@ -62,7 +61,7 @@ def replay(
     delay: float = typer.Option(
         DEFAULT_DELAY,
         "--delay",
-        help="Seconds between events in demo mode",
+        help="Seconds between events (with random jitter)",
     ),
     speed: int = typer.Option(
         DEFAULT_MOUSE_STEPS,
@@ -78,15 +77,9 @@ def replay(
         typer.echo(f"Recording not found: {recording}", err=True)
         raise typer.Exit(1)
 
-    # Demo mode implies visible browser
-    if demo and headless:
-        typer.echo("Warning: --demo requires visible browser, ignoring --headless")
-        headless = False
-
     success, total = asyncio.run(
         replay_recording(
             recording,
-            headless=headless,
             demo=demo,
             delay=delay,
             mouse_steps=speed,

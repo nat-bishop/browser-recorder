@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import random
 from pathlib import Path
 
 import typer
@@ -56,7 +57,6 @@ async def _replay_event(page: Page, event: RecordedEvent) -> bool:
 
 async def replay_recording(
     recording_path: Path,
-    headless: bool = False,
     demo: bool = False,
     delay: float = DEFAULT_DELAY,
     mouse_steps: int = DEFAULT_MOUSE_STEPS,
@@ -65,9 +65,8 @@ async def replay_recording(
 
     Args:
         recording_path: Path to the JSONL recording file
-        headless: Run browser in headless mode
         demo: Enable visual demo mode with cursor indicator and smooth movement
-        delay: Seconds to wait between events (demo mode)
+        delay: Seconds to wait between events (with +/- 50% jitter)
         mouse_steps: Number of interpolation steps for mouse movement (demo mode)
     """
     # Import demo functions here to avoid circular import issues
@@ -103,7 +102,7 @@ async def replay_recording(
     async with async_playwright() as p:
         # Use slowMo in demo mode for smoother experience
         slow_mo = 50 if demo else 0
-        browser = await p.chromium.launch(headless=headless, slow_mo=slow_mo)
+        browser = await p.chromium.launch(headless=False, slow_mo=slow_mo)
         page = await browser.new_page()
 
         # Setup visual cursor in demo mode
@@ -113,9 +112,10 @@ async def replay_recording(
         await page.goto(start_url)
 
         for i, event in enumerate(events):
-            # Add delay between events in demo mode
-            if demo and delay > 0 and i > 0:
-                await asyncio.sleep(delay)
+            # Add delay with jitter between events for human-like timing
+            if delay > 0 and i > 0:
+                jitter = delay * random.uniform(0.5, 1.5)
+                await asyncio.sleep(jitter)
 
             typer.echo(f"[{i + 1}/{len(events)}] {event.event_type}: ", nl=False)
 

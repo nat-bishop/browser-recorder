@@ -27,6 +27,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `StepFixSuggestion` model for LLM-generated fix suggestions
   - LLM interprets feedback and suggests: delete, modify, or keep
   - New `select` action type for `<select>` dropdown elements
+  - New "go back" option `[b]` - rewind to fix an earlier step that caused a failure
+  - Look-ahead warning system: detects when next step's target element is missing
+  - `StepHistory` tracking with status indicators (OK, WARN, FAIL) for step visualization
+  - Look-ahead warnings display as "[Next step issue]" in step history
+  - Go-back menu shows the actual step predicted to fail, not the detecting step
+  - Rewind waits for page load and adds pauses between steps for reliability
+  - Abort handling shows partial run notice and defaults to NOT saving changes
 - Guided replay mode (`--guided` / `-g` flag) with interactive error handling
 - LLM-based error diagnosis for guided replay using `diagnose_error.yaml` prompt
   - Classifies errors as: `conversion` (wrong step), `execution` (step failed), `verification` (wrong result)

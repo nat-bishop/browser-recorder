@@ -74,11 +74,41 @@ When a step fails, guided mode pauses and provides:
 3. Context-aware action menu based on error type
 4. Re-record option to fix incorrect steps in-place
 5. Describe fix option (`[f]`) for natural language problem description
+6. Go back option (`[b]`) to rewind and fix an earlier step
 
 Error types and typical actions:
-- **CONVERSION**: LLM generated wrong step - Delete, Re-record, Skip, Describe fix
-- **EXECUTION**: Step failed to run (timeout, not found) - Retry, Re-record, Manual fix, Describe fix
-- **VERIFICATION**: Step ran but wrong result - Continue, Retry, Manual fix, Describe fix
+- **CONVERSION**: LLM generated wrong step - Delete, Re-record, Skip, Describe fix, Go back
+- **EXECUTION**: Step failed to run (timeout, not found) - Retry, Re-record, Manual fix, Describe fix, Go back
+- **VERIFICATION**: Step ran but wrong result - Continue, Retry, Manual fix, Describe fix, Go back
+
+**Look-Ahead Warning System**:
+
+After each successful step, guided mode checks if the next step's target element exists on the page via `_check_next_step_ready()`. If the element is missing, a warning is recorded and displayed as "[Next step issue]" in the step history. This helps identify when an earlier step navigated to the wrong page.
+
+**Step History Tracking**:
+
+The `StepHistory` dataclass tracks execution state:
+- `status`: PENDING, OK, WARN (step OK but next step has issue), FAIL
+- `warning`: Optional message about detected issues
+- `warning_about_next`: True if warning predicts next step will fail
+
+`_show_step_history()` displays progress with status indicators (OK, WARN, FAIL).
+
+**Go-Back Flow**:
+
+When user selects go-back:
+1. Shows warned steps with their target step index (look-ahead warnings map to next step)
+2. User chooses which step to retry
+3. Navigates back to start URL and waits for page load (`networkidle`)
+4. Replays all steps up to the target with brief pauses (0.3s) between steps
+5. Resets history for target step onwards
+6. Continues from target step
+
+**Abort Handling**:
+
+When replay is aborted (including during rewind):
+- Modifications summary notes this was a partial run
+- Save prompt defaults to NOT saving changes (vs. default=True for complete runs)
 
 **Describe Fix Flow**:
 

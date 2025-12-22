@@ -177,9 +177,16 @@ Features:
 - Context-aware action menu based on error type
 - **Apply fix** option `[x]` - LLM analyzes page HTML to propose fixes with actual selectors
 - **Describe fix** option `[f]` - user describes problem in natural language (also uses page HTML)
+- **Go back** option `[b]` - rewind to fix an earlier step that caused a failure
 - `StepFixSuggestion` model for LLM-generated fix suggestions (delete, modify, keep)
 - `ProposedFix` model with confidence levels (high/medium/low)
+- `StepHistory` dataclass with status tracking (PENDING, OK, WARN, FAIL)
 - `select` action type for `<select>` dropdown elements
+- Look-ahead warning system: checks if next step's target exists after each step
+- Step history display with "[Next step issue]" markers for look-ahead warnings
+- Go-back targets the actual predicted-to-fail step, not the detecting step
+- Rewind waits for page load (`networkidle`) and adds 0.3s pauses between steps
+- Abort handling: partial run notice, save prompt defaults to NOT saving
 
 **TODO - Future enhancement:**
 - [ ] Vision support: Pass screenshot to vision-capable LLM (GPT-4o, Claude) for more accurate element identification when page HTML is insufficient

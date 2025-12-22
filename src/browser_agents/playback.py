@@ -41,7 +41,17 @@ class GuidedAction(str, Enum):
     MANUAL_FIX = "manual_fix"  # User fixed it manually in browser
     DESCRIBE = "describe"  # User describes the fix in natural language
     APPLY_FIX = "apply_fix"  # Apply the LLM's proposed fix
+    GO_BACK = "go_back"  # Go back to fix an earlier step
     ABORT = "abort"  # Stop the replay
+
+
+class StepStatus(str, Enum):
+    """Status of a step during replay."""
+
+    PENDING = "pending"
+    OK = "ok"
+    WARN = "warn"  # Step succeeded but look-ahead found issue
+    FAIL = "fail"
 
 
 @dataclass
@@ -85,6 +95,18 @@ class WorkflowModifications:
                 # Keep original step
                 result.append(step)
         return result
+
+
+@dataclass
+class StepHistory:
+    """Track execution history of a step for visualization."""
+
+    index: int
+    description: str
+    status: StepStatus = StepStatus.PENDING
+    warning: str | None = None
+    warning_about_next: bool = False  # True if warning is about the NEXT step, not this one
+    screenshot_path: Path | None = None
 
 
 # Default demo mode settings
@@ -176,6 +198,67 @@ async def _extract_page_context(
         return html
     except Exception as e:
         return f"<!-- Could not extract page HTML: {e} -->"
+
+
+async def _check_next_step_ready(page: "Page", next_step: ActionStep | None) -> str | None:
+    """Check if the next step's target element exists on the page.
+
+    This is a "look-ahead" check to detect if we might be on the wrong page
+    after a step that appeared to succeed but actually navigated incorrectly.
+
+    Args:
+        page: The Playwright page to check.
+        next_step: The next step to be executed (or None if this is the last step).
+
+    Returns:
+        Warning message if next step's element not found, None if OK.
+    """
+    if not next_step or not next_step.target:
+        return None
+
+    # Skip for navigation and wait steps - they don't have target elements
+    if next_step.action in (StepAction.navigate, StepAction.wait):
+        return None
+
+    try:
+        # Quick check with short timeout - does element exist at all?
+        count = await page.locator(next_step.target).count()
+        if count == 0:
+            return f"Next step's target '{next_step.target}' not found on current page"
+        return None
+    except Exception:
+        # Invalid selector or other issue, let it fail naturally on the actual step
+        return None
+
+
+def _show_step_history(history: list[StepHistory], current_index: int) -> None:
+    """Display step history with status indicators.
+
+    Shows all steps up to and including the current one, with visual
+    indicators for success, warnings, and failures.
+
+    Args:
+        history: List of step history entries.
+        current_index: Index of the current step (0-based).
+    """
+    typer.echo("\nStep history:")
+    for h in history[: current_index + 1]:
+        # Show WARN status only if warning is about THIS step, not next
+        if h.warning and not h.warning_about_next:
+            indicator = "WARN"
+        else:
+            indicator = {
+                StepStatus.OK: "OK",
+                StepStatus.WARN: "OK",  # Don't show WARN for look-ahead warnings
+                StepStatus.FAIL: "FAIL",
+                StepStatus.PENDING: "...",
+            }[h.status]
+        typer.echo(f"  [{h.index + 1}:{indicator}] {h.description}")
+        if h.warning:
+            if h.warning_about_next:
+                typer.echo(f"        ^ [Next step issue] {h.warning}")
+            else:
+                typer.echo(f"        ^ {h.warning}")
 
 
 def _classify_error(error: str, step: ActionStep) -> ErrorType:
@@ -506,6 +589,7 @@ async def _prompt_user_guidance(
     error: str,
     screenshot_path: Path | None,
     expected_screenshot: str | None,
+    history: list[StepHistory] | None = None,
 ) -> tuple[GuidedAction, ErrorDiagnosis | None, str]:
     """Prompt user for guidance when a step fails.
 
@@ -516,6 +600,8 @@ async def _prompt_user_guidance(
     - Conversion errors: Delete, Re-record, Skip, Abort
     - Execution errors: Retry, Re-record, Manual fix, Skip, Abort
     - Verification errors: Continue, Retry, Manual fix, Abort
+
+    If there are previous steps with warnings in history, offers go-back option.
 
     Returns:
         Tuple of (action, diagnosis, page_html). Diagnosis and page_html are returned
@@ -594,6 +680,24 @@ async def _prompt_user_guidance(
     if expected_screenshot:
         typer.echo(f"Expected state: {expected_screenshot}")
 
+    # Check for previous warnings that might indicate root cause
+    # Look-ahead warnings predict next step will fail, so map to the NEXT step index
+    warned_steps: list[tuple[int, str, bool]] = []  # (index, warning, is_look_ahead)
+    if history:
+        for h in history:
+            if h.warning:
+                if h.warning_about_next:
+                    # Warning predicts NEXT step will fail - use next index
+                    warned_steps.append((h.index + 1, h.warning, True))
+                else:
+                    # Warning is about this step itself
+                    warned_steps.append((h.index, h.warning, False))
+        if warned_steps:
+            typer.echo("\nPrevious warnings (possible root cause):")
+            for idx, warn, is_look_ahead in warned_steps:
+                prefix = "[Predicted] " if is_look_ahead else ""
+                typer.echo(f"  Step {idx + 1}: {prefix}{warn}")
+
     # Context-aware options based on error type
     typer.echo("\nWhat would you like to do?")
 
@@ -602,11 +706,19 @@ async def _prompt_user_guidance(
     apply_fix_choice = {}
     if has_proposed_fix:
         apply_fix_choice = {"x": GuidedAction.APPLY_FIX, "apply": GuidedAction.APPLY_FIX}
+    go_back_choice = {}
+    # Only offer go-back if there are warnings about steps BEFORE current
+    # (warnings about current step don't help - we're already here)
+    prior_warned = [w for w in warned_steps if w[0] < step_num - 1]
+    if prior_warned:
+        go_back_choice = {"b": GuidedAction.GO_BACK, "back": GuidedAction.GO_BACK}
 
     if error_type == ErrorType.CONVERSION:
         # LLM generated wrong step - offer to delete or re-record
         if has_proposed_fix:
             typer.echo("  [x] Apply suggested fix")
+        if prior_warned:
+            typer.echo("  [b] Go back to fix earlier step")
         typer.echo("  [d] Delete this step (remove from workflow)")
         typer.echo("  [r] Re-record (record correct action from here)")
         typer.echo("  [f] Describe the fix (tell me what's wrong)")
@@ -614,6 +726,7 @@ async def _prompt_user_guidance(
         typer.echo("  [a] Abort replay")
         valid_choices = {
             **apply_fix_choice,
+            **go_back_choice,
             "d": GuidedAction.DELETE,
             "delete": GuidedAction.DELETE,
             "r": GuidedAction.RERECORD,
@@ -629,6 +742,8 @@ async def _prompt_user_guidance(
         # Step might be correct but failed - offer retry options
         if has_proposed_fix:
             typer.echo("  [x] Apply suggested fix")
+        if prior_warned:
+            typer.echo("  [b] Go back to fix earlier step")
         typer.echo("  [t] Retry this step")
         typer.echo("  [r] Re-record (record correct action from here)")
         typer.echo("  [m] I fixed it manually (continue)")
@@ -637,6 +752,7 @@ async def _prompt_user_guidance(
         typer.echo("  [a] Abort replay")
         valid_choices = {
             **apply_fix_choice,
+            **go_back_choice,
             "t": GuidedAction.RETRY,
             "retry": GuidedAction.RETRY,
             "r": GuidedAction.RERECORD,
@@ -654,6 +770,8 @@ async def _prompt_user_guidance(
         # Step ran but result seems wrong
         if has_proposed_fix:
             typer.echo("  [x] Apply suggested fix")
+        if prior_warned:
+            typer.echo("  [b] Go back to fix earlier step")
         typer.echo("  [c] Continue anyway (looks fine)")
         typer.echo("  [t] Retry this step")
         typer.echo("  [m] I fixed it manually (continue)")
@@ -661,6 +779,7 @@ async def _prompt_user_guidance(
         typer.echo("  [a] Abort replay")
         valid_choices = {
             **apply_fix_choice,
+            **go_back_choice,
             "c": GuidedAction.CONTINUE,
             "continue": GuidedAction.CONTINUE,
             "t": GuidedAction.RETRY,
@@ -932,6 +1051,10 @@ async def replay_workflow(
         if use_action:
             # Replay action steps
             i = 0
+            # Initialize step history for tracking
+            history: list[StepHistory] = [
+                StepHistory(index=idx, description=s.description) for idx, s in enumerate(steps)
+            ]
             while i < len(steps) and not aborted:
                 step = steps[i]
 
@@ -955,9 +1078,26 @@ async def replay_workflow(
                 if success:
                     typer.echo("OK")
                     success_count += 1
+
+                    # Look-ahead check: is next step's element present?
+                    next_step = steps[i + 1] if i + 1 < len(steps) else None
+                    warning = await _check_next_step_ready(page, next_step)
+
+                    if warning:
+                        # Mark current step as OK but record warning about next step
+                        history[i].status = StepStatus.OK
+                        history[i].warning = warning
+                        history[i].warning_about_next = True  # Warning is about NEXT step
+                        typer.echo(f"  WARNING: {warning}")
+                        if guided:
+                            typer.echo("  This might indicate we're on the wrong page.")
+                    else:
+                        history[i].status = StepStatus.OK
+
                     i += 1
                 else:
                     typer.echo("FAILED")
+                    history[i].status = StepStatus.FAIL
                     if error:
                         typer.echo(f"  ERROR: {error}", err=True)
 
@@ -966,6 +1106,7 @@ async def replay_workflow(
                     try:
                         await page.screenshot(path=screenshot_path)
                         typer.echo(f"  Screenshot saved: {screenshot_path}")
+                        history[i].screenshot_path = screenshot_path
                     except Exception:
                         typer.echo("  (Could not save screenshot - browser closed)")
                         break  # Exit loop if browser is closed
@@ -976,6 +1117,9 @@ async def replay_workflow(
                         if expected and not Path(expected).is_absolute():
                             expected = str(workflow_path.parent / expected)
 
+                        # Show step history for context
+                        _show_step_history(history, i)
+
                         # Ask user what to do (uses LLM for diagnosis)
                         action, diagnosis, page_html = await _prompt_user_guidance(
                             page=page,
@@ -984,6 +1128,7 @@ async def replay_workflow(
                             error=error or "Unknown error",
                             screenshot_path=screenshot_path,
                             expected_screenshot=expected,
+                            history=history,
                         )
 
                         if action == GuidedAction.APPLY_FIX:
@@ -1112,6 +1257,85 @@ async def replay_workflow(
                             else:
                                 typer.echo("Could not interpret feedback. Skipping...")
                                 i += 1
+                        elif action == GuidedAction.GO_BACK:
+                            # Find steps with warnings (map look-ahead warnings to next step)
+                            # List of (target_step_index, warning_text) for steps we can go back to
+                            go_back_options: list[tuple[int, str]] = []
+                            for h in history:
+                                if h.warning:
+                                    if h.warning_about_next:
+                                        # Look-ahead warning: target is the NEXT step
+                                        target_idx = h.index + 1
+                                        # Bounds check (shouldn't happen, but defensive)
+                                        if target_idx >= len(history):
+                                            continue
+                                    else:
+                                        target_idx = h.index
+                                    # Only offer if it's before current step
+                                    if target_idx < i:
+                                        go_back_options.append((target_idx, h.warning))
+
+                            if not go_back_options:
+                                typer.echo("No previous steps to go back to.")
+                                continue
+
+                            # Let user choose which step to go back to
+                            typer.echo("\nWhich step to go back to?")
+                            valid_targets = set()
+                            for target_idx, warning in go_back_options:
+                                valid_targets.add(target_idx)
+                                typer.echo(
+                                    f"  [{target_idx + 1}] {history[target_idx].description}"
+                                )
+                                typer.echo(f"        ^ {warning}")
+
+                            choice = typer.prompt("Step number")
+                            try:
+                                go_back_to = int(choice) - 1
+                                if go_back_to not in valid_targets:
+                                    typer.echo("Invalid step number.")
+                                    continue
+                            except ValueError:
+                                typer.echo("Invalid input.")
+                                continue
+
+                            # Go back requires restarting from beginning
+                            typer.echo(f"\nGoing back to step {go_back_to + 1}...")
+                            typer.echo("Restarting workflow from beginning...")
+
+                            # Navigate back to start URL and wait for load
+                            await page.goto(workflow.source_url)
+                            await page.wait_for_load_state("networkidle")
+
+                            # Re-run all steps up to the target
+                            for replay_idx in range(go_back_to):
+                                replay_step = steps[replay_idx]
+                                typer.echo(
+                                    f"  Replaying [{replay_idx + 1}]: {replay_step.description}...",
+                                    nl=False,
+                                )
+                                success, _ = await _replay_action_step(page, replay_step)
+                                if success:
+                                    typer.echo(" OK")
+                                    # Brief wait for page to settle after each step
+                                    await asyncio.sleep(0.3)
+                                else:
+                                    typer.echo(" FAILED")
+                                    typer.echo("Could not replay to target step. Aborting.")
+                                    aborted = True
+                                    break
+
+                            if not aborted:
+                                # Reset history for steps from go_back_to onwards
+                                for idx in range(go_back_to, len(history)):
+                                    history[idx].status = StepStatus.PENDING
+                                    history[idx].warning = None
+                                    history[idx].warning_about_next = False
+                                    history[idx].screenshot_path = None
+
+                                # Set i to the target step to retry it
+                                i = go_back_to
+                                typer.echo(f"\nNow at step {go_back_to + 1}. Retrying...")
                         elif action == GuidedAction.ABORT:
                             typer.echo("Aborting replay...")
                             aborted = True
@@ -1206,13 +1430,21 @@ async def replay_workflow(
             typer.echo("WORKFLOW MODIFICATIONS")
             typer.echo("=" * 60)
 
+            if aborted:
+                typer.echo("NOTE: Replay was aborted before completion.")
+                typer.echo("The following modifications were made before abort:\n")
+
             if modifications.deleted_indices:
                 typer.echo(f"Steps deleted: {sorted(modifications.deleted_indices)}")
             if modifications.replacements:
                 for idx, new_steps in modifications.replacements.items():
                     typer.echo(f"Step {idx + 1} replaced with {len(new_steps)} new step(s)")
 
-            if typer.confirm("\nSave these changes to the workflow?", default=True):
+            save_prompt = "\nSave these changes to the workflow?"
+            if aborted:
+                save_prompt = "\nSave these partial changes anyway?"
+
+            if typer.confirm(save_prompt, default=not aborted):
                 # Apply modifications and save
                 from browser_agents.converter import save_workflow
 

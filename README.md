@@ -25,6 +25,10 @@ uv run browser-agents replay recordings/<session-id>.jsonl --demo
 
 # Demo mode with custom timing
 uv run browser-agents replay recordings/<session-id>.jsonl --demo --delay 0.5 --speed 30
+
+# Convert recording to action definition (requires Ollama)
+uv run browser-agents convert recordings/<session-id>.jsonl
+uv run browser-agents convert recordings/<session-id>.jsonl -o ./actions
 ```
 
 ## Development

@@ -52,13 +52,21 @@ Raw recordings are messy (hundreds of low-level events). Use LLM summarization t
 - Variable parameters (e.g., email, address, product ID)
 - Simplified step sequence with `{parameter}` placeholders
 
-- [ ] Define `ActionDefinition` Pydantic model
-- [ ] Create LLM prompt for recording → action conversion
-- [ ] Implement `convert_recording_to_action()` function
-- [ ] CLI: `uv run browser-agents convert recordings/foo.jsonl`
-- [ ] Store converted actions in `actions/` directory
+- [x] Define `ActionDefinition` Pydantic model
+- [x] Create LLM prompt for recording → action conversion
+- [x] Implement `convert_recording_to_action()` function
+- [x] CLI: `uv run browser-agents convert recordings/foo.jsonl`
+- [x] Store converted actions in `actions/` directory
 
 **Success:** `browser-agents convert recording.jsonl` outputs a clean action JSON.
+
+### Implementation Notes (Dec 2025)
+
+- Uses `ChatOpenAI` with Ollama `/v1` endpoint (pattern from ai-agents)
+- Model: `gpt-oss:120b` (configurable via `LOCAL_MODEL` env var)
+- Event preprocessing: Collapses keystrokes, removes scroll noise, deduplicates navigations
+- Prompt includes few-shot example for consistency
+- Error handling: Retry with exponential backoff, post-call validation
 
 ## Phase 4: Agent Integration
 
@@ -126,24 +134,27 @@ async def checkout(shipping_address: str) -> ActionResult:
 
 ## Current Focus
 
-**Phase 2 Complete** - Recording and playback are working with full test coverage.
+**Phase 3 Complete** - Recording → Action conversion with LLM analysis is working.
 
-### Demo Mode (Phase 2 Enhancement)
+### Phase 3: Convert Command
 
-Visual demo mode added for reviewing recordings with human-friendly playback:
-- Injected SVG arrow cursor that follows mouse movements
-- Smooth cursor movement using Playwright's steps interpolation
-- Configurable delay between events (`--delay`)
-- Configurable movement speed (`--speed`)
-- Click animation effect
-- slowMo for smoother Playwright operations
+Convert raw recordings to parameterized action definitions:
+```bash
+uv run browser-agents convert recordings/abc123.jsonl
+```
 
-Usage: `uv run browser-agents replay recording.jsonl --demo`
+Features:
+- Event preprocessing (collapses keystrokes, removes scroll noise)
+- LLM-based analysis using `gpt-oss:120b` via Ollama
+- Structured output with Pydantic validation
+- Automatic parameter extraction (usernames, passwords, etc.)
+- Retry logic with exponential backoff
 
-### Test Coverage (33 tests, all passing)
-- Unit tests: Models, CLI argument handling
+### Test Coverage (44 tests, all passing)
+- Unit tests: Models, CLI, preprocessing, converter (mocked LLM)
 - Integration tests: Playback, recording capture, full roundtrip
+- Slow tests: Real LLM conversion (skipped by default)
 
 ### Next Steps
-1. Phase 3: Recording → Action Conversion (LLM-based summarization)
+1. Phase 4: Agent Integration (decorator-based tool interface)
 2. Consider adding more event types (hover, select, etc.) as needed

@@ -27,6 +27,8 @@ You are an expert code analyst for browser automation projects. You trace implem
 
 **Read CLAUDE.md first** - it contains current project structure and conventions.
 
+**For architecture questions** (data flow, component relationships), also read ARCHITECTURE.md.
+
 ## Project-Specific Patterns
 
 ### Recording via Injected JavaScript
@@ -64,6 +66,7 @@ def record(url: str, output_dir: Path) -> None:
 | `playback` | Playwright actions, replay logic |
 | `models` | Pydantic schemas, validation |
 | `cli` | Typer commands, argument handling |
+| `conversion` | LLM integration, structured output, preprocessing |
 
 ## Analysis Approach
 

@@ -1,6 +1,6 @@
 ---
 name: doc-drafter
-description: Use after implementing any feature, fix, or refactor to keep documentation synchronized with code. Updates README.md and IMPLEMENTATION_PLAN.md checkboxes.
+description: Use after implementing any feature, fix, or refactor to keep documentation synchronized with code. Updates CHANGELOG.md, README.md, IMPLEMENTATION_PLAN.md, and ARCHITECTURE.md as needed.
 tools: Glob, Grep, Read, Edit, Bash(git diff:*), Bash(git log:*), Bash(git status:*)
 model: inherit
 color: purple
@@ -21,16 +21,39 @@ Edit files one at a time. If an edit fails, re-read the file and retry.
    - `git diff --stat` - Summary of what files changed
    - `git log --oneline -5` - Recent commit messages
    - `git status` - Uncommitted changes
-3. **Update IMPLEMENTATION_PLAN.md** - Check off completed items
-4. **Update README.md** if user-facing changes occurred
-5. **Only document what exists** - Never document planned features as implemented
+3. **Update CHANGELOG.md** - Add entries to Unreleased section
+4. **Update IMPLEMENTATION_PLAN.md** - Check off completed items
+5. **Update README.md** - If user-facing CLI or setup changes
+6. **Update ARCHITECTURE.md** - If new components or data flow changes
+7. **Only document what exists** - Never document planned features as implemented
 
 ## What Goes Where
 
 | File | Purpose | When to Update |
 |------|---------|----------------|
-| `IMPLEMENTATION_PLAN.md` | Phase checkboxes, completed features | After implementing features |
-| `README.md` | Quick-start, usage examples | Major user-facing changes |
+| `CHANGELOG.md` | User-facing changes (Keep a Changelog format) | Every feature, fix, or change |
+| `IMPLEMENTATION_PLAN.md` | Phase checkboxes | After implementing planned features |
+| `README.md` | Quick-start, CLI examples | New commands, setup changes |
+| `ARCHITECTURE.md` | System design, data flow | New modules, architecture changes |
+
+## CHANGELOG Format
+
+Follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/):
+
+```markdown
+## [Unreleased]
+
+### Added
+- New feature description
+
+### Changed
+- Modified behavior
+
+### Fixed
+- Bug fix description
+```
+
+Sections: Added, Changed, Deprecated, Removed, Fixed, Security
 
 ## Formatting Conventions
 
@@ -45,7 +68,7 @@ Edit files one at a time. If an edit fails, re-read the file and retry.
 
 ## Quality Checks
 
+- CHANGELOG.md has entry in Unreleased for changes
 - Changes accurately reflect code
-- No new files created
 - CLAUDE.md NOT modified
 - Made minimal, targeted edits

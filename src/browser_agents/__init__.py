@@ -2,6 +2,19 @@
 
 __version__ = "0.1.0"
 
-from browser_agents.models import RecordedEvent, Recording
+from browser_agents.models import (
+    ActionDefinition,
+    ActionParameter,
+    ActionStep,
+    RecordedEvent,
+    Recording,
+)
 
-__all__ = ["RecordedEvent", "Recording", "__version__"]
+__all__ = [
+    "ActionDefinition",
+    "ActionParameter",
+    "ActionStep",
+    "RecordedEvent",
+    "Recording",
+    "__version__",
+]

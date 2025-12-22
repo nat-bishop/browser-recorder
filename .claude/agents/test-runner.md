@@ -81,7 +81,7 @@ You are an expert test execution agent specialized in running pytest and deliver
 
 - Use `uv run pytest` (not bare `pytest`)
 - Browser tests are marked `@pytest.mark.slow` - skip with `-m "not slow"` for fast feedback
-- Test files: `test_models.py` (fast), `test_cli.py` (fast), `test_browser.py` (slow)
+- Tests in `tests/` directory, use `pytest --collect-only` to discover
 - Coverage available via `--cov=browser_agents`
 
 ## Critical Rules

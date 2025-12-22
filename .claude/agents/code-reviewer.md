@@ -83,6 +83,15 @@ You are an elite senior software engineer conducting rigorous code reviews. You 
 - Crash-safe append-only writes
 - Screenshot on failure for debugging
 
+### 9. LLM Integration (Phase 3)
+
+- Using `get_structured_llm()` for Pydantic output
+- Mocking LLM in tests (Mock base, AsyncMock for ainvoke)
+- Proper retry logic with `.with_retry()`
+- Specific exception handling (ConnectionError, TimeoutError)
+- Temperature parameter passed through call chain
+- UTF-8 encoding for all file operations
+
 ## Confidence Scoring
 
 Rate each potential issue from 0-100:

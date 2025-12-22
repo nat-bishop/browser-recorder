@@ -9,7 +9,11 @@
       "WebFetch(domain:docs.browser-use.com)",
       "Bash(git commit:*)",
       "Bash(uv run pytest:*)",
-      "WebFetch(domain:playwright.dev)"
+      "WebFetch(domain:playwright.dev)",
+      "WebFetch(domain:python.langchain.com)",
+      "WebFetch(domain:docs.langchain.com)",
+      "Bash(uv sync:*)",
+      "Bash(uv run:*)"
     ]
   }
 }

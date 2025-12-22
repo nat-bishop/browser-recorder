@@ -14,7 +14,9 @@
       "WebFetch(domain:docs.langchain.com)",
       "Bash(uv sync:*)",
       "Bash(uv run:*)",
-      "Skill(commit)"
+      "Skill(commit)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)"
     ]
   }
 }

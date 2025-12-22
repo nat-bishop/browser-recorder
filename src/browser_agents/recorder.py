@@ -109,6 +109,23 @@ class BrowserRecorder:
         self.started_at = datetime.now(UTC)
         self._running = True
         self._page: Page | None = None
+        self._screenshot_dir: Path | None = None
+        self._screenshot_count = 0
+
+    async def _take_screenshot(self) -> str | None:
+        """Take a screenshot and return the relative path."""
+        if not self._page or not self._screenshot_dir:
+            return None
+        try:
+            self._screenshot_count += 1
+            filename = f"{self._screenshot_count:04d}.png"
+            filepath = self._screenshot_dir / filename
+            await self._page.screenshot(path=filepath)
+            # Return path relative to workflow dir (screenshots/0001.png)
+            return f"screenshots/{filename}"
+        except Exception as e:
+            typer.echo(f"  [screenshot failed: {e}]", err=True)
+            return None
 
     def _add_event(self, event: RecordedEvent) -> None:
         """Add event and print for visibility."""
@@ -117,13 +134,18 @@ class BrowserRecorder:
         detail = event.selector or event.url or event.value or ""
         if len(detail) > 50:
             detail = detail[:47] + "..."
-        typer.echo(f"  [{event.event_type}] {detail}")
+        screenshot_indicator = " [+screenshot]" if event.screenshot_path else ""
+        typer.echo(f"  [{event.event_type}] {detail}{screenshot_indicator}")
 
     async def _handle_page_event(self, event_data: dict[str, Any]) -> None:
         """Handle events received from injected page script."""
         event_type = event_data.get("type")
 
         if event_type == "click":
+            # Take screenshot after click (captures resulting state)
+            # Small delay to let any animations/transitions settle
+            await asyncio.sleep(0.1)
+            screenshot_path = await self._take_screenshot()
             self._add_event(
                 RecordedEvent(
                     timestamp=time.time(),
@@ -131,9 +153,11 @@ class BrowserRecorder:
                     selector=event_data.get("selector"),
                     x=event_data.get("x"),
                     y=event_data.get("y"),
+                    screenshot_path=screenshot_path,
                 )
             )
         elif event_type == "input":
+            # No screenshot for individual keystrokes (too many)
             self._add_event(
                 RecordedEvent(
                     timestamp=time.time(),
@@ -171,25 +195,34 @@ class BrowserRecorder:
             pass
 
         # Track page navigations via Playwright's built-in event
-        def on_navigate(frame: Any) -> None:
+        async def on_navigate(frame: Any) -> None:
             if frame == page.main_frame:
+                # Small delay to let page settle after navigation
+                await asyncio.sleep(0.3)
+                screenshot_path = await self._take_screenshot()
                 self._add_event(
                     RecordedEvent(
                         timestamp=time.time(),
                         event_type="navigate",
                         url=frame.url,
+                        screenshot_path=screenshot_path,
                     )
                 )
 
-        page.on("framenavigated", on_navigate)
+        page.on("framenavigated", lambda f: asyncio.create_task(on_navigate(f)))
 
     async def record(self) -> Workflow:
         """Start recording and wait for user to stop."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+        # Create screenshot directory for this session
+        self._screenshot_dir = self.output_dir / self.session_id / "screenshots"
+        self._screenshot_dir.mkdir(parents=True, exist_ok=True)
+
         typer.echo(f"Starting recording session: {self.session_id}")
         typer.echo(f"Navigate to: {self.start_url}")
-        typer.echo("Press Ctrl+C to stop recording.\n")
+        typer.echo(f"Screenshots: {self._screenshot_dir}")
+        typer.echo("Close the browser or press Ctrl+C to stop recording.\n")
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=False)
@@ -199,14 +232,22 @@ class BrowserRecorder:
             await self._setup_event_capture(page)
             await page.goto(self.start_url)
 
-            # Wait for Ctrl+C
+            # Set up page close detection
+            page_closed = asyncio.Event()
+            page.on("close", lambda: page_closed.set())
+
+            # Wait for Ctrl+C or page close
             try:
-                while self._running:
+                while self._running and not page_closed.is_set():
                     await asyncio.sleep(0.1)
             except asyncio.CancelledError:
                 pass
 
-            await browser.close()
+            # Close browser gracefully (may already be closed if user closed window)
+            try:
+                await browser.close()
+            except Exception:
+                pass  # Browser already closed or connection lost
 
         return Workflow(
             id=self.session_id,
@@ -221,8 +262,11 @@ class BrowserRecorder:
 
 
 def _save_workflow(workflow: Workflow, output_dir: Path) -> Path:
-    """Save workflow to JSON file."""
-    output_file = output_dir / f"{workflow.id}.json"
+    """Save workflow to JSON file inside session folder."""
+    # Save in session folder alongside screenshots
+    session_dir = output_dir / workflow.id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    output_file = session_dir / "workflow.json"
     with output_file.open("w", encoding="utf-8") as f:
         f.write(workflow.model_dump_json(indent=2))
     return output_file

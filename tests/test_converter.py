@@ -64,7 +64,9 @@ class TestConvertWorkflowToAction:
             "browser_agents.converter.get_structured_llm",
             return_value=mock_llm,
         ):
-            result = await convert_workflow_to_action(sample_workflow_model)
+            result = await convert_workflow_to_action(
+                sample_workflow_model, description="Login to the site"
+            )
 
         assert isinstance(result, ActionDefinition)
         assert result.name == "login_user"
@@ -85,7 +87,9 @@ class TestConvertWorkflowToAction:
             "browser_agents.converter.get_structured_llm",
             return_value=mock,
         ):
-            result = await convert_workflow_to_action(sample_workflow_model)
+            result = await convert_workflow_to_action(
+                sample_workflow_model, description="Login to the site"
+            )
 
         assert isinstance(result, str)
         assert "failed" in result.lower() or "connection" in result.lower()
@@ -112,7 +116,7 @@ class TestConvertWorkflowToAction:
             "browser_agents.converter.get_structured_llm",
             return_value=mock_llm,
         ):
-            result = await convert_workflow_to_action(short_workflow)
+            result = await convert_workflow_to_action(short_workflow, description="Click a button")
 
         assert isinstance(result, str)
         assert "too short" in result.lower()
@@ -133,7 +137,9 @@ class TestConvertWorkflowToAction:
             "browser_agents.converter.get_structured_llm",
             return_value=mock,
         ):
-            result = await convert_workflow_to_action(sample_workflow_model)
+            result = await convert_workflow_to_action(
+                sample_workflow_model, description="Login to the site"
+            )
 
         assert isinstance(result, str)
         assert "empty" in result.lower()
@@ -163,7 +169,9 @@ class TestConvertWorkflowToAction:
             "browser_agents.converter.get_structured_llm",
             return_value=mock,
         ):
-            result = await convert_workflow_to_action(sample_workflow_model)
+            result = await convert_workflow_to_action(
+                sample_workflow_model, description="Login to the site"
+            )
 
         assert isinstance(result, str)
         assert "incomplete" in result.lower()

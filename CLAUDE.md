@@ -21,7 +21,8 @@ browser-agents/
 │   ├── playback.py      # Replay workflows (events or action steps)
 │   ├── recorder.py      # Event capture via injected JS
 │   └── prompts/
-│       └── convert_recording.yaml  # LLM prompt for conversion
+│       ├── convert_recording.yaml  # LLM prompt for conversion
+│       └── diagnose_error.yaml     # LLM prompt for error diagnosis
 ├── tests/
 │   ├── conftest.py      # Shared fixtures
 │   ├── test_browser.py  # Integration tests - browser (slow)

@@ -150,30 +150,30 @@ def save_workflow(workflow: Workflow, path: Path) -> None:
 
 async def convert_workflow_to_action(
     workflow: Workflow,
+    description: str,
     max_retries: int = 2,
-    temperature: float = 0.0,
 ) -> ActionDefinition | str:
     """Convert a workflow's events to an ActionDefinition using LLM analysis.
 
     This function:
     1. Preprocesses events to reduce noise
     2. Validates event count (min 2, max 100)
-    3. Sends to LLM with structured output
+    3. Sends to LLM with structured output (user intent + events)
     4. Validates the response
 
     Args:
         workflow: The Workflow object to convert.
+        description: User description of what the workflow does.
         max_retries: Number of retry attempts for transient failures.
-        temperature: LLM temperature (0.0 = deterministic).
 
     Returns:
         ActionDefinition on success, or error string on failure.
 
     Example:
         >>> workflow = load_workflow(Path("workflows/abc.json"))
-        >>> result = await convert_workflow_to_action(workflow)
+        >>> result = await convert_workflow_to_action(workflow, "Login and checkout")
         >>> if isinstance(result, ActionDefinition):
-        ...     workflow.action = result
+        ...     workflow.actions.append(result)
         ...     save_workflow(workflow, Path("workflows/abc.json"))
     """
     try:
@@ -190,20 +190,22 @@ async def convert_workflow_to_action(
         # Load prompt
         prompts = load_prompt()
 
-        # Build messages
-        user_content = prompts["user_template"].format(
+        # Build events message
+        events_content = prompts["user_template"].format(
             start_url=workflow.source_url,
             event_count=len(events),
             events_json=json.dumps(events, indent=2),
         )
 
+        # Build messages: system instructions, user intent, then events
         messages: list[tuple[str, str]] = [
             ("system", prompts["system_prompt"]),
-            ("user", user_content),
+            ("user", f"I want to create a workflow that: {description}"),
+            ("user", events_content),
         ]
 
         # Get structured LLM with retry
-        llm = get_structured_llm(ActionDefinition, temperature=temperature)
+        llm = get_structured_llm(ActionDefinition)
 
         # Apply retry for transient errors
         retryable = llm.with_retry(

@@ -13,6 +13,7 @@ class StepAction(str, Enum):
     navigate = "navigate"
     click = "click"
     type = "type"
+    select = "select"  # For <select> dropdown elements
     scroll = "scroll"
     wait = "wait"
 
@@ -38,6 +39,8 @@ class RecordedEvent(BaseModel):
     # For click events - backup if selector fails
     x: int | None = Field(default=None, description="Click X coordinate")
     y: int | None = Field(default=None, description="Click Y coordinate")
+    # Screenshot taken after this event (path relative to workflow dir)
+    screenshot_path: str | None = Field(default=None, description="Screenshot after this event")
 
 
 class Recording(BaseModel):
@@ -65,7 +68,9 @@ class ActionParameter(BaseModel):
 class ActionStep(BaseModel):
     """A single step in an action workflow."""
 
-    action: StepAction = Field(description="Action type: navigate, click, type, scroll, wait")
+    action: StepAction = Field(
+        description="Action type: navigate, click, type, select, scroll, wait"
+    )
     target: str | None = Field(default=None, description="CSS selector or URL for the action")
     value: str | None = Field(
         default=None, description="Value with {param_name} placeholders for substitution"
@@ -77,6 +82,10 @@ class ActionStep(BaseModel):
     )
     fallback_text: str | None = Field(
         default=None, description="Visible text of button/link for visual matching"
+    )
+    # Expected page state after this step (from recording screenshots)
+    expected_screenshot: str | None = Field(
+        default=None, description="Screenshot showing expected state after this step"
     )
 
 
@@ -100,6 +109,44 @@ class ActionDefinition(BaseModel):
 
 
 # =============================================================================
+# Error Diagnosis (LLM-generated from failed step)
+# =============================================================================
+
+
+class ErrorDiagnosis(BaseModel):
+    """LLM-generated diagnosis of why a step failed.
+
+    Used during guided replay to classify errors and provide
+    actionable suggestions to the user.
+    """
+
+    error_type: Literal["conversion", "execution", "verification"] = Field(
+        description="Error category: conversion (LLM generated wrong step), "
+        "execution (step correct but failed), verification (step ran, wrong result)"
+    )
+    explanation: str = Field(description="Plain-language explanation of what went wrong")
+    suggestion: str = Field(description="What the user should do to fix it")
+    likely_cause: str = Field(description="Assessment of the root cause")
+
+
+class StepFixSuggestion(BaseModel):
+    """LLM-generated suggestion for fixing a step based on user feedback.
+
+    Used during guided replay when user describes the problem in natural language.
+    """
+
+    fix_type: Literal["delete", "modify", "keep"] = Field(
+        description="What to do: delete (remove step), modify (change it), keep (retry as-is)"
+    )
+    explanation: str = Field(description="Why this fix was suggested")
+    # For modify: the corrected step details
+    new_action: str | None = Field(default=None, description="New action type (if modifying)")
+    new_target: str | None = Field(default=None, description="New target selector (if modifying)")
+    new_value: str | None = Field(default=None, description="New value (if modifying)")
+    new_description: str | None = Field(default=None, description="New description (if modifying)")
+
+
+# =============================================================================
 # Workflow: Unified format combining recording + action + media
 # =============================================================================
 
@@ -114,17 +161,34 @@ class MediaRefs(BaseModel):
     )
 
 
+class SuccessCondition(BaseModel):
+    """Defines what success looks like for a workflow replay."""
+
+    description: str = Field(
+        description="Human-readable description of success (e.g., 'Order confirmation page')"
+    )
+    url_pattern: str | None = Field(
+        default=None, description="Optional regex pattern for expected final URL"
+    )
+    screenshot_path: str | None = Field(
+        default=None, description="Optional screenshot of expected final state"
+    )
+
+
 class Workflow(BaseModel):
-    """Unified workflow combining raw recording, derived action, and media.
+    """Unified workflow combining raw recording, derived actions, and media.
 
     This is the single source of truth for a browser automation workflow:
+    - Human-readable name and description
     - Raw events from recording (always present)
-    - LLM-derived action (optional, added by convert command)
+    - LLM-derived actions (multiple allowed, added by convert command)
     - Media references (optional, for video/audio capture)
     """
 
     id: str = Field(description="Unique session identifier")
-    version: int = Field(default=1, description="Schema version for migrations")
+    version: int = Field(default=2, description="Schema version for migrations")
+    name: str | None = Field(default=None, description="Human-readable workflow name")
+    description: str | None = Field(default=None, description="What this workflow does")
     source_url: str = Field(description="Initial URL where recording started")
     created_at: datetime = Field(description="When workflow was created")
 
@@ -133,12 +197,26 @@ class Workflow(BaseModel):
         default_factory=list, description="Raw recorded browser events"
     )
 
-    # LLM-derived action (optional, added by convert command)
-    action: ActionDefinition | None = Field(
-        default=None, description="Parameterized action derived from events"
+    # LLM-derived actions (added by convert command, multiple allowed)
+    actions: list[ActionDefinition] = Field(
+        default_factory=list, description="Parameterized actions derived from events"
     )
 
     # Media references (optional, for future video/audio capture)
     media: MediaRefs | None = Field(
         default=None, description="References to associated media files"
     )
+
+    # Success condition (optional, defines what success looks like)
+    success_condition: SuccessCondition | None = Field(
+        default=None, description="What success looks like for replay verification"
+    )
+
+    # Legacy support: accept 'action' field and convert to 'actions'
+    def __init__(self, **data):
+        # Handle legacy 'action' field (singular)
+        if "action" in data and data["action"] is not None:
+            if "actions" not in data or not data["actions"]:
+                data["actions"] = [data["action"]]
+            del data["action"]
+        super().__init__(**data)

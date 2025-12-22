@@ -23,12 +23,16 @@ High-level roadmap for browser-agents. Each phase builds on the previous.
 - [x] Event capture via injected JavaScript listeners
 - [x] Unified Workflow JSON storage
 - [x] CLI (`uv run browser-agents record <url>`)
+- [x] Browser close detection (stops recording when user closes window)
+- [x] Workflow metadata (`--name`, `--description` flags)
+- [x] `list` command to view all workflows
 
 **Implementation notes:**
 - Uses `page.expose_function()` + `page.add_init_script()` to inject event listeners
 - Captures click, input, scroll, and navigation events
 - Selector generation prioritizes: data-testid > id > aria-label > name > tag+classes
-- Output: Single JSON file per session in `workflows/` directory
+- Output: Session folder `workflows/{session_id}/workflow.json` with screenshots
+- Browser close detection via page "close" event (Ctrl+C also works)
 
 **Success:** Run recorder, click around a site, get valid workflow JSON output.
 
@@ -56,11 +60,13 @@ Raw recordings are messy (hundreds of low-level events). Use LLM summarization t
 - Simplified step sequence with `{parameter}` placeholders
 
 - [x] Define `ActionDefinition` Pydantic model
-- [x] Define unified `Workflow` model (events + action + media refs)
+- [x] Define unified `Workflow` model v2 (events + actions list + media refs)
 - [x] Create LLM prompt for workflow → action conversion
 - [x] Implement `convert_workflow_to_action()` function
 - [x] CLI: `uv run browser-agents convert workflows/foo.json`
-- [x] In-place update: action saved to same workflow file
+- [x] In-place update: action appended to same workflow file
+- [x] Multiple actions per workflow (convert can run multiple times)
+- [x] Action selection by name during replay (`--name` flag)
 
 **Success:** `browser-agents convert workflow.json` adds action definition to the workflow.
 
@@ -126,7 +132,7 @@ async def checkout(shipping_address: str) -> ActionResult:
 
 ### Approach for browser-agents
 
-- [ ] Store screenshots with each recorded event
+- [x] Store screenshots with each recorded event (model support added)
 - [ ] On playback failure, send screenshot to Vision LLM
 - [ ] Vision LLM locates equivalent element visually
 - [ ] Fall back to visual matching when CSS selectors break
@@ -138,30 +144,69 @@ async def checkout(shipping_address: str) -> ActionResult:
 
 ## Current Focus
 
-**Phase 3 Complete** - Workflow conversion with unified format is working.
+**Phase 3 Complete** - Workflow conversion with unified format v2 is working.
+
+### Workflow Model v2
+
+Enhanced workflow format with:
+- `name` and `description` fields for human-readable identification
+- `version` field (currently 2) for schema migrations
+- `actions` list supporting multiple action definitions per workflow
+- Legacy `action` field auto-converts on load
+
+### Recording Improvements
+
+- Browser close detection via page "close" event
+- Ctrl+C still works as alternative
+- `--name` and `--description` flags for metadata
+- `list` command to view all workflows
+
+### Guided Replay Mode
+
+Interactive error handling when action replay fails:
+```bash
+# Guided mode pauses on errors and offers context-aware options
+uv run browser-agents replay workflows/abc123/workflow.json --action --guided
+```
+
+Features:
+- LLM-based error diagnosis via Ollama (falls back to pattern matching)
+- Error classification: `conversion`, `execution`, `verification`
+- Plain-language explanations and suggestions
+- Re-record functionality to fix incorrect steps in-place
+- Context-aware action menu based on error type
+- **Describe fix** option `[f]` - user describes problem in natural language
+- `StepFixSuggestion` model for LLM-generated fix suggestions (delete, modify, keep)
+- `select` action type for `<select>` dropdown elements
 
 ### Unified Workflow Format
 
 All data now uses a single `Workflow` JSON format in `workflows/`:
 ```bash
 # Record creates workflow with raw events
-uv run browser-agents record https://example.com
+uv run browser-agents record https://example.com --name "login-flow"
 
-# Convert adds action definition in-place
-uv run browser-agents convert workflows/abc123.json
+# Convert appends action definition (can run multiple times)
+uv run browser-agents convert workflows/abc123/workflow.json -d "Login flow"
 
-# Replay supports both modes
-uv run browser-agents replay workflows/abc123.json           # raw events
-uv run browser-agents replay workflows/abc123.json --action  # action steps
+# List all workflows
+uv run browser-agents list
+
+# Replay supports both modes, with action selection
+uv run browser-agents replay workflows/abc123/workflow.json           # raw events
+uv run browser-agents replay workflows/abc123/workflow.json --action  # action steps
+uv run browser-agents replay workflows/abc123/workflow.json --action --name login_user  # specific action
 ```
 
 Features:
-- Unified `Workflow` model: events + action + media refs
+- Unified `Workflow` model v2: events + actions list + media refs + success condition
+- Multiple actions per workflow with name-based selection
 - Event preprocessing (collapses keystrokes, removes scroll noise)
 - LLM-based analysis using `gpt-oss:120b` via Ollama
 - Structured output with Pydantic validation
 - Automatic parameter extraction (usernames, passwords, etc.)
 - Parameter substitution with `--param key=value` flags
+- Success condition support via `set-success` command
 
 ### Test Coverage (44 tests, all passing)
 - Unit tests: Models, CLI, preprocessing, converter (mocked LLM)
@@ -170,4 +215,4 @@ Features:
 
 ### Next Steps
 1. Phase 4: Agent Integration (decorator-based tool interface)
-2. Consider adding more event types (hover, select, etc.) as needed
+2. Consider adding more event types (hover, etc.) as needed

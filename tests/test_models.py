@@ -159,6 +159,7 @@ class TestStepAction:
         assert StepAction.navigate == "navigate"
         assert StepAction.click == "click"
         assert StepAction.type == "type"
+        assert StepAction.select == "select"
         assert StepAction.scroll == "scroll"
         assert StepAction.wait == "wait"
 
@@ -245,7 +246,7 @@ class TestWorkflow:
         )
         assert workflow.id == "abc123"
         assert len(workflow.events) == 2
-        assert workflow.action is None
+        assert workflow.actions == []
         assert workflow.media is None
 
     def test_workflow_with_action(self) -> None:
@@ -274,10 +275,40 @@ class TestWorkflow:
             source_url="https://example.com",
             created_at=datetime.now(UTC),
             events=[RecordedEvent(timestamp=1.0, event_type="click", selector="#btn")],
+            actions=[action],
+        )
+        assert len(workflow.actions) == 1
+        assert workflow.actions[0].name == "login"
+
+    def test_workflow_with_legacy_action_field(self) -> None:
+        """Workflow accepts legacy 'action' field and converts to 'actions'."""
+        from browser_agents.models import (
+            ActionDefinition,
+            ActionStep,
+            RecordedEvent,
+            StepAction,
+            Workflow,
+        )
+
+        action = ActionDefinition(
+            name="legacy_action",
+            description="Test legacy support",
+            parameters=[],
+            steps=[ActionStep(action=StepAction.click, target="#btn", description="Click")],
+            domains=["example.com"],
+        )
+
+        # Pass singular 'action' field (legacy)
+        workflow = Workflow(
+            id="legacy123",
+            source_url="https://example.com",
+            created_at=datetime.now(UTC),
+            events=[RecordedEvent(timestamp=1.0, event_type="click", selector="#btn")],
             action=action,
         )
-        assert workflow.action is not None
-        assert workflow.action.name == "login"
+        # Should be converted to 'actions' list
+        assert len(workflow.actions) == 1
+        assert workflow.actions[0].name == "legacy_action"
 
     def test_workflow_with_media_refs(self) -> None:
         """Workflow with media references is valid."""
@@ -313,8 +344,8 @@ class TestWorkflow:
         assert restored.source_url == original.source_url
         assert len(restored.events) == 1
 
-    def test_workflow_version_defaults_to_1(self) -> None:
-        """Workflow version defaults to 1."""
+    def test_workflow_version_defaults_to_2(self) -> None:
+        """Workflow version defaults to 2 (with name, description, actions list)."""
         from browser_agents.models import Workflow
 
         workflow = Workflow(
@@ -323,4 +354,74 @@ class TestWorkflow:
             created_at=datetime.now(UTC),
             events=[],
         )
-        assert workflow.version == 1
+        assert workflow.version == 2
+        assert workflow.name is None
+        assert workflow.description is None
+        assert workflow.actions == []
+
+
+class TestErrorDiagnosis:
+    """Tests for ErrorDiagnosis model."""
+
+    def test_error_diagnosis_conversion_type(self) -> None:
+        """ErrorDiagnosis with conversion error type is valid."""
+        from browser_agents.models import ErrorDiagnosis
+
+        diagnosis = ErrorDiagnosis(
+            error_type="conversion",
+            explanation="Tried to type into a dropdown element",
+            suggestion="Delete this step or re-record",
+            likely_cause="LLM generated wrong action type",
+        )
+        assert diagnosis.error_type == "conversion"
+
+    def test_error_diagnosis_execution_type(self) -> None:
+        """ErrorDiagnosis with execution error type is valid."""
+        from browser_agents.models import ErrorDiagnosis
+
+        diagnosis = ErrorDiagnosis(
+            error_type="execution",
+            explanation="Element not found",
+            suggestion="Retry or check if selector changed",
+            likely_cause="Selector may have changed since recording",
+        )
+        assert diagnosis.error_type == "execution"
+
+    def test_error_diagnosis_verification_type(self) -> None:
+        """ErrorDiagnosis with verification error type is valid."""
+        from browser_agents.models import ErrorDiagnosis
+
+        diagnosis = ErrorDiagnosis(
+            error_type="verification",
+            explanation="Form validation failed",
+            suggestion="Check the input values",
+            likely_cause="Invalid data entered",
+        )
+        assert diagnosis.error_type == "verification"
+
+    def test_error_diagnosis_invalid_type_rejected(self) -> None:
+        """ErrorDiagnosis rejects invalid error types."""
+        from browser_agents.models import ErrorDiagnosis
+
+        with pytest.raises(ValidationError):
+            ErrorDiagnosis(
+                error_type="unknown",  # type: ignore[arg-type]
+                explanation="Test",
+                suggestion="Test",
+                likely_cause="Test",
+            )
+
+    def test_error_diagnosis_serialization_roundtrip(self) -> None:
+        """ErrorDiagnosis can be serialized to JSON and back."""
+        from browser_agents.models import ErrorDiagnosis
+
+        original = ErrorDiagnosis(
+            error_type="execution",
+            explanation="Element not found on page",
+            suggestion="Check if selector changed since recording",
+            likely_cause="Selector may have changed due to dynamic content",
+        )
+        json_str = original.model_dump_json()
+        restored = ErrorDiagnosis.model_validate_json(json_str)
+        assert restored == original
+        assert restored.error_type == "execution"

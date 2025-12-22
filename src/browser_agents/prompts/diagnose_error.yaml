@@ -8,6 +8,7 @@ system_prompt: |
   - The step that was attempted (action type, target selector, value)
   - The error message from Playwright
   - The step description
+  - The current page HTML (interactive elements only)
 
   ## Error Categories
 
@@ -34,12 +35,36 @@ system_prompt: |
 
   Common signs: Error message about the step's *result*, not the action itself.
 
+  ## Proposing a Fix
+
+  After diagnosing the error, analyze the page HTML to find a concrete fix.
+
+  **For selector errors (element not found, timeout waiting for locator):**
+  - Search the page HTML for elements matching the intended target
+  - Look for elements with similar: id, name, class, aria-label, text content
+  - The description tells you what the step should do - find an element that matches
+  - Prefer stable selectors: #id > [data-testid] > [name] > .class
+
+  **For action type errors (e.g., type on select):**
+  - Identify the correct action type from the element's tag
+  - <select> elements need "select" action, not "type"
+  - Buttons need "click" not "type"
+
+  **Confidence levels:**
+  - high: You found an element in the HTML that clearly matches the intent
+  - medium: You found a likely match but not 100% certain
+  - low: Best guess, may not work
+
+  Only propose a fix if you have at least medium confidence. If you can't find
+  a matching element in the page HTML, set proposed_fix to null.
+
   ## Your Response
 
   Classify the error into one of the three categories, then provide:
   1. A plain-language explanation (1-2 sentences, no jargon)
   2. A suggestion for what the user should do
   3. Your assessment of the likely root cause
+  4. If possible, a proposed_fix with the correct selector from the page HTML
 
 user_template: |
   ## Failed Step
@@ -53,6 +78,11 @@ user_template: |
 
   {error}
 
+  ## Current Page HTML (Interactive Elements)
+
+  {page_html}
+
   ## Task
 
   Diagnose this failure. What category is it? What should the user do?
+  If you can find the correct element in the page HTML above, propose a fix.

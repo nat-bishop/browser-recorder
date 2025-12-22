@@ -113,6 +113,31 @@ class ActionDefinition(BaseModel):
 # =============================================================================
 
 
+class ProposedFix(BaseModel):
+    """A concrete fix the LLM proposes based on page HTML analysis.
+
+    Used when the LLM can identify the correct selector or action
+    from the current page state.
+    """
+
+    fix_type: Literal["modify_selector", "change_action", "delete_step"] = Field(
+        description="Type of fix: modify_selector (use different selector), "
+        "change_action (e.g., select instead of type), delete_step (remove this step)"
+    )
+    new_target: str | None = Field(
+        default=None, description="New CSS selector to use (must exist in page HTML)"
+    )
+    new_action: str | None = Field(
+        default=None, description="New action type if changing (e.g., 'select' instead of 'type')"
+    )
+    new_value: str | None = Field(default=None, description="New value if changing")
+    confidence: Literal["high", "medium", "low"] = Field(
+        description="Confidence level: high (selector found in HTML), "
+        "medium (inferred from context), low (best guess)"
+    )
+    reasoning: str = Field(description="Why this fix should work")
+
+
 class ErrorDiagnosis(BaseModel):
     """LLM-generated diagnosis of why a step failed.
 
@@ -127,6 +152,11 @@ class ErrorDiagnosis(BaseModel):
     explanation: str = Field(description="Plain-language explanation of what went wrong")
     suggestion: str = Field(description="What the user should do to fix it")
     likely_cause: str = Field(description="Assessment of the root cause")
+    proposed_fix: ProposedFix | None = Field(
+        default=None,
+        description="Concrete fix based on page HTML analysis. "
+        "Only present when LLM has confidence in a fix.",
+    )
 
 
 class StepFixSuggestion(BaseModel):

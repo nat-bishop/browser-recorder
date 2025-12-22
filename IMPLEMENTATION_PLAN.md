@@ -175,9 +175,14 @@ Features:
 - Plain-language explanations and suggestions
 - Re-record functionality to fix incorrect steps in-place
 - Context-aware action menu based on error type
-- **Describe fix** option `[f]` - user describes problem in natural language
+- **Apply fix** option `[x]` - LLM analyzes page HTML to propose fixes with actual selectors
+- **Describe fix** option `[f]` - user describes problem in natural language (also uses page HTML)
 - `StepFixSuggestion` model for LLM-generated fix suggestions (delete, modify, keep)
+- `ProposedFix` model with confidence levels (high/medium/low)
 - `select` action type for `<select>` dropdown elements
+
+**TODO - Future enhancement:**
+- [ ] Vision support: Pass screenshot to vision-capable LLM (GPT-4o, Claude) for more accurate element identification when page HTML is insufficient
 
 ### Unified Workflow Format
 

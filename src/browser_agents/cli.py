@@ -25,6 +25,7 @@ app = typer.Typer(
     name="browser-agents",
     help="Record, replay, and convert browser interactions.",
     no_args_is_help=True,
+    pretty_exceptions_short=True,  # Short traceback without local variables
 )
 
 

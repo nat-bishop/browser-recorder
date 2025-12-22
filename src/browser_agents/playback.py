@@ -40,6 +40,7 @@ class GuidedAction(str, Enum):
     RERECORD = "rerecord"  # Re-record from current state
     MANUAL_FIX = "manual_fix"  # User fixed it manually in browser
     DESCRIBE = "describe"  # User describes the fix in natural language
+    APPLY_FIX = "apply_fix"  # Apply the LLM's proposed fix
     ABORT = "abort"  # Stop the replay
 
 
@@ -103,6 +104,78 @@ def _open_screenshot(path: Path) -> None:
             subprocess.run(["xdg-open", str(path)], check=False)
     except Exception:
         pass  # Silently fail if can't open
+
+
+async def _extract_page_context(
+    page: "Page",
+    max_chars: int = 8000,
+) -> str:
+    """Extract relevant HTML context from the page for LLM diagnosis.
+
+    Extracts interactive elements (inputs, buttons, links, selects) as simplified
+    HTML that the LLM can analyze to find correct selectors.
+
+    Args:
+        page: The Playwright page to extract from.
+        max_chars: Maximum characters to return (truncates if exceeded).
+
+    Returns:
+        Simplified HTML of interactive elements on the page.
+    """
+    js_extract = """
+    () => {
+        const interactive = document.querySelectorAll(
+            'input, button, a, select, textarea, [role="button"], [onclick], [data-testid]'
+        );
+        const results = [];
+        for (const el of interactive) {
+            const attrs = [];
+            // Collect key attributes
+            if (el.id) attrs.push(`id="${el.id}"`);
+            if (el.name) attrs.push(`name="${el.name}"`);
+            if (el.className && typeof el.className === 'string') {
+                const classes = el.className.trim().split(/\\s+/).slice(0, 3).join(' ');
+                if (classes) attrs.push(`class="${classes}"`);
+            }
+            if (el.getAttribute('data-testid')) {
+                attrs.push(`data-testid="${el.getAttribute('data-testid')}"`);
+            }
+            if (el.getAttribute('aria-label')) {
+                attrs.push(`aria-label="${el.getAttribute('aria-label')}"`);
+            }
+            if (el.placeholder) attrs.push(`placeholder="${el.placeholder}"`);
+            if (el.type) attrs.push(`type="${el.type}"`);
+            if (el.href) attrs.push(`href="${el.href.slice(0, 50)}"`);
+
+            // Get visible text (truncated)
+            const text = el.textContent?.trim().slice(0, 50) || '';
+            const tag = el.tagName.toLowerCase();
+
+            // Format as HTML-like string
+            if (tag === 'select') {
+                // Include options for select elements
+                const options = Array.from(el.options || []).slice(0, 5).map(o =>
+                    `  <option value="${o.value}">${o.text.slice(0, 30)}</option>`
+                ).join('\\n');
+                results.push(`<${tag} ${attrs.join(' ')}>\\n${options}\\n</${tag}>`);
+            } else if (text && !['input', 'textarea'].includes(tag)) {
+                results.push(`<${tag} ${attrs.join(' ')}>${text}</${tag}>`);
+            } else {
+                results.push(`<${tag} ${attrs.join(' ')} />`);
+            }
+        }
+        return results.join('\\n');
+    }
+    """
+
+    try:
+        html = await page.evaluate(js_extract)
+        # Truncate if needed
+        if len(html) > max_chars:
+            html = html[:max_chars] + "\n<!-- ... truncated ... -->"
+        return html
+    except Exception as e:
+        return f"<!-- Could not extract page HTML: {e} -->"
 
 
 def _classify_error(error: str, step: ActionStep) -> ErrorType:
@@ -196,6 +269,7 @@ async def _interpret_user_feedback(
     step: ActionStep,
     error: str,
     feedback: str,
+    page_html: str = "",
 ) -> StepFixSuggestion | None:
     """Use LLM to interpret user feedback and suggest a fix.
 
@@ -203,6 +277,7 @@ async def _interpret_user_feedback(
         step: The action step that failed.
         error: The error message from Playwright.
         feedback: User's natural language description of the problem/fix.
+        page_html: HTML of interactive elements on the page (for finding correct selectors).
 
     Returns:
         StepFixSuggestion on success, None if LLM unavailable.
@@ -224,6 +299,7 @@ async def _interpret_user_feedback(
             description=step.description,
             error=error,
             feedback=feedback,
+            page_html=page_html or "(not available)",
         )
 
         messages: list[tuple[str, str]] = [
@@ -247,6 +323,7 @@ async def _interpret_user_feedback(
 async def _diagnose_error_with_llm(
     step: ActionStep,
     error: str,
+    page_html: str = "",
 ) -> ErrorDiagnosis | None:
     """Use LLM to diagnose why a step failed.
 
@@ -256,6 +333,7 @@ async def _diagnose_error_with_llm(
     Args:
         step: The action step that failed.
         error: The error message from Playwright.
+        page_html: HTML of interactive elements on the page (for finding correct selectors).
 
     Returns:
         ErrorDiagnosis on success, None if LLM unavailable.
@@ -276,6 +354,7 @@ async def _diagnose_error_with_llm(
             value=step.value or "(none)",
             description=step.description,
             error=error,
+            page_html=page_html or "(not available)",
         )
 
         messages: list[tuple[str, str]] = [
@@ -328,6 +407,10 @@ def substitute_params(step: ActionStep, params: dict[str, str]) -> ActionStep:
     return step.model_copy(update={"value": new_value})
 
 
+# Timeout for finding elements (5 seconds is enough to know if selector is wrong)
+ELEMENT_TIMEOUT = 5000
+
+
 async def _replay_action_step(page: Page, step: ActionStep) -> tuple[bool, str | None]:
     """Replay a single action step.
 
@@ -342,14 +425,14 @@ async def _replay_action_step(page: Page, step: ActionStep) -> tuple[bool, str |
 
         elif step.action == StepAction.click:
             if step.target:
-                await page.click(step.target)
+                await page.click(step.target, timeout=ELEMENT_TIMEOUT)
             elif step.fallback_coords and len(step.fallback_coords) >= 2:
                 await page.mouse.click(step.fallback_coords[0], step.fallback_coords[1])
             return True, None
 
         elif step.action == StepAction.type:
             if step.target and step.value is not None:
-                await page.fill(step.target, step.value)
+                await page.fill(step.target, step.value, timeout=ELEMENT_TIMEOUT)
             elif step.value:
                 await page.keyboard.type(step.value)
             return True, None
@@ -357,13 +440,13 @@ async def _replay_action_step(page: Page, step: ActionStep) -> tuple[bool, str |
         elif step.action == StepAction.select:
             # Handle <select> dropdown elements
             if step.target and step.value is not None:
-                await page.select_option(step.target, value=step.value)
+                await page.select_option(step.target, value=step.value, timeout=ELEMENT_TIMEOUT)
             return True, None
 
         elif step.action == StepAction.scroll:
             # Scroll to element or coordinates
             if step.target:
-                await page.locator(step.target).scroll_into_view_if_needed()
+                await page.locator(step.target).scroll_into_view_if_needed(timeout=ELEMENT_TIMEOUT)
             return True, None
 
         elif step.action == StepAction.wait:
@@ -417,12 +500,13 @@ async def _replay_event(page: Page, event: RecordedEvent) -> bool:
 
 
 async def _prompt_user_guidance(
+    page: "Page",
     step_num: int,
     step: ActionStep,
     error: str,
     screenshot_path: Path | None,
     expected_screenshot: str | None,
-) -> GuidedAction:
+) -> tuple[GuidedAction, ErrorDiagnosis | None, str]:
     """Prompt user for guidance when a step fails.
 
     Uses LLM for error diagnosis when available, falling back to
@@ -432,9 +516,16 @@ async def _prompt_user_guidance(
     - Conversion errors: Delete, Re-record, Skip, Abort
     - Execution errors: Retry, Re-record, Manual fix, Skip, Abort
     - Verification errors: Continue, Retry, Manual fix, Abort
+
+    Returns:
+        Tuple of (action, diagnosis, page_html). Diagnosis and page_html are returned
+        so the caller can use them for APPLY_FIX and DESCRIBE actions.
     """
-    # Try LLM-based diagnosis first (more accurate)
-    llm_diagnosis = await _diagnose_error_with_llm(step, error)
+    # Extract page HTML for LLM context
+    page_html = await _extract_page_context(page)
+
+    # Try LLM-based diagnosis first (more accurate, now with page context)
+    llm_diagnosis = await _diagnose_error_with_llm(step, error, page_html)
 
     if llm_diagnosis:
         # Map LLM error_type string to ErrorType enum
@@ -476,6 +567,24 @@ async def _prompt_user_guidance(
     if suggestion:
         _safe_echo("SUGGESTION: ", suggestion)
 
+    # Check if we have a proposed fix from the LLM
+    has_proposed_fix = (
+        llm_diagnosis
+        and llm_diagnosis.proposed_fix
+        and llm_diagnosis.proposed_fix.confidence in ("high", "medium")
+    )
+
+    if has_proposed_fix:
+        fix = llm_diagnosis.proposed_fix
+        typer.echo(f"\nPROPOSED FIX ({fix.confidence} confidence):")
+        _safe_echo("  ", fix.reasoning)
+        if fix.new_target:
+            typer.echo(f"  New selector: {fix.new_target}")
+        if fix.new_action:
+            typer.echo(f"  New action: {fix.new_action}")
+        if fix.new_value:
+            typer.echo(f"  New value: {fix.new_value}")
+
     # Screenshot handling
     if screenshot_path:
         typer.echo(f"\nScreenshot saved: {screenshot_path}")
@@ -488,17 +597,23 @@ async def _prompt_user_guidance(
     # Context-aware options based on error type
     typer.echo("\nWhat would you like to do?")
 
-    # Common describe option for all error types
+    # Common options for all error types
     describe_choice = {"f": GuidedAction.DESCRIBE, "fix": GuidedAction.DESCRIBE}
+    apply_fix_choice = {}
+    if has_proposed_fix:
+        apply_fix_choice = {"x": GuidedAction.APPLY_FIX, "apply": GuidedAction.APPLY_FIX}
 
     if error_type == ErrorType.CONVERSION:
         # LLM generated wrong step - offer to delete or re-record
+        if has_proposed_fix:
+            typer.echo("  [x] Apply suggested fix")
         typer.echo("  [d] Delete this step (remove from workflow)")
         typer.echo("  [r] Re-record (record correct action from here)")
         typer.echo("  [f] Describe the fix (tell me what's wrong)")
         typer.echo("  [s] Skip (this run only)")
         typer.echo("  [a] Abort replay")
         valid_choices = {
+            **apply_fix_choice,
             "d": GuidedAction.DELETE,
             "delete": GuidedAction.DELETE,
             "r": GuidedAction.RERECORD,
@@ -509,9 +624,11 @@ async def _prompt_user_guidance(
             "abort": GuidedAction.ABORT,
             **describe_choice,
         }
-        default = "d"
+        default = "x" if has_proposed_fix else "d"
     elif error_type == ErrorType.EXECUTION:
         # Step might be correct but failed - offer retry options
+        if has_proposed_fix:
+            typer.echo("  [x] Apply suggested fix")
         typer.echo("  [t] Retry this step")
         typer.echo("  [r] Re-record (record correct action from here)")
         typer.echo("  [m] I fixed it manually (continue)")
@@ -519,6 +636,7 @@ async def _prompt_user_guidance(
         typer.echo("  [s] Skip (this run only)")
         typer.echo("  [a] Abort replay")
         valid_choices = {
+            **apply_fix_choice,
             "t": GuidedAction.RETRY,
             "retry": GuidedAction.RETRY,
             "r": GuidedAction.RERECORD,
@@ -531,15 +649,18 @@ async def _prompt_user_guidance(
             "abort": GuidedAction.ABORT,
             **describe_choice,
         }
-        default = "t"
+        default = "x" if has_proposed_fix else "t"
     else:  # VERIFICATION
         # Step ran but result seems wrong
+        if has_proposed_fix:
+            typer.echo("  [x] Apply suggested fix")
         typer.echo("  [c] Continue anyway (looks fine)")
         typer.echo("  [t] Retry this step")
         typer.echo("  [m] I fixed it manually (continue)")
         typer.echo("  [f] Describe the fix (tell me what's wrong)")
         typer.echo("  [a] Abort replay")
         valid_choices = {
+            **apply_fix_choice,
             "c": GuidedAction.CONTINUE,
             "continue": GuidedAction.CONTINUE,
             "t": GuidedAction.RETRY,
@@ -550,11 +671,12 @@ async def _prompt_user_guidance(
             "abort": GuidedAction.ABORT,
             **describe_choice,
         }
+        default = "x" if has_proposed_fix else "c"
 
     while True:
         choice = typer.prompt("Choice", default=default).lower().strip()
         if choice in valid_choices:
-            return valid_choices[choice]
+            return valid_choices[choice], llm_diagnosis, page_html
         typer.echo(f"Invalid choice. Valid options: {', '.join(set(valid_choices.keys()))}")
 
 
@@ -839,10 +961,14 @@ async def replay_workflow(
                     if error:
                         typer.echo(f"  ERROR: {error}", err=True)
 
-                    # Take screenshot of current state
+                    # Take screenshot of current state (if browser still open)
                     screenshot_path = workflow_path.parent / f"{workflow_path.stem}_error_{i}.png"
-                    await page.screenshot(path=screenshot_path)
-                    typer.echo(f"  Screenshot saved: {screenshot_path}")
+                    try:
+                        await page.screenshot(path=screenshot_path)
+                        typer.echo(f"  Screenshot saved: {screenshot_path}")
+                    except Exception:
+                        typer.echo("  (Could not save screenshot - browser closed)")
+                        break  # Exit loop if browser is closed
 
                     if guided:
                         # Get expected screenshot path if available
@@ -851,7 +977,8 @@ async def replay_workflow(
                             expected = str(workflow_path.parent / expected)
 
                         # Ask user what to do (uses LLM for diagnosis)
-                        action = await _prompt_user_guidance(
+                        action, diagnosis, page_html = await _prompt_user_guidance(
+                            page=page,
                             step_num=i + 1,
                             step=step,
                             error=error or "Unknown error",
@@ -859,7 +986,35 @@ async def replay_workflow(
                             expected_screenshot=expected,
                         )
 
-                        if action == GuidedAction.CONTINUE:
+                        if action == GuidedAction.APPLY_FIX:
+                            # Apply the LLM's proposed fix
+                            if diagnosis and diagnosis.proposed_fix:
+                                fix = diagnosis.proposed_fix
+                                typer.echo(f"Applying fix: {fix.fix_type}")
+
+                                if fix.fix_type == "delete_step":
+                                    modifications.deleted_indices.add(i)
+                                    typer.echo("Step marked for deletion.")
+                                    i += 1
+                                else:
+                                    # Create modified step
+                                    updates: dict[str, object] = {}
+                                    if fix.new_target:
+                                        updates["target"] = fix.new_target
+                                    if fix.new_action:
+                                        updates["action"] = StepAction(fix.new_action)
+                                    if fix.new_value:
+                                        updates["value"] = fix.new_value
+
+                                    new_step = step.model_copy(update=updates)
+                                    modifications.replacements[i] = [new_step]
+                                    steps[i] = new_step
+                                    typer.echo("Step modified. Retrying...")
+                                    # Don't increment - retry with fixed step
+                            else:
+                                typer.echo("No fix available. Skipping...")
+                                i += 1
+                        elif action == GuidedAction.CONTINUE:
                             typer.echo("Continuing to next step...")
                             i += 1
                         elif action == GuidedAction.RETRY:
@@ -899,7 +1054,7 @@ async def replay_workflow(
 
                             typer.echo("Interpreting your feedback...")
                             fix = await _interpret_user_feedback(
-                                step, error or "Unknown error", feedback
+                                step, error or "Unknown error", feedback, page_html
                             )
 
                             if fix:

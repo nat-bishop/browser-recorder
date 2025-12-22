@@ -1,0 +1,166 @@
+{
+  "id": "test-errors",
+  "version": 1,
+  "source_url": "https://www.saucedemo.com/",
+  "created_at": "2025-12-22T06:43:37.359718+00:00",
+  "events": [],
+  "action": {
+    "name": "test_error_handling",
+    "description": "Test workflow with intentional errors for guided fix testing",
+    "parameters": [
+      {
+        "name": "username",
+        "description": "Login username",
+        "example": "standard_user"
+      },
+      {
+        "name": "password",
+        "description": "Login password",
+        "example": "secret_sauce"
+      },
+      {
+        "name": "first_name",
+        "description": "First name",
+        "example": "Test"
+      },
+      {
+        "name": "last_name",
+        "description": "Last name",
+        "example": "User"
+      },
+      {
+        "name": "postal_code",
+        "description": "Postal code",
+        "example": "12345"
+      }
+    ],
+    "steps": [
+      {
+        "action": "type",
+        "target": "#user-name",
+        "value": "{username}",
+        "description": "Enter username",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "type",
+        "target": "#password",
+        "value": "{password}",
+        "description": "Enter password",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "click",
+        "target": "#login-btn",
+        "value": null,
+        "description": "Click login button (WRONG SELECTOR)",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "click",
+        "target": "#add-to-cart-sauce-labs-backpack",
+        "value": null,
+        "description": "Add backpack to cart",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "type",
+        "target": "#add-to-cart-sauce-labs-onesie",
+        "value": "click me",
+        "description": "Add onesie (WRONG ACTION TYPE)",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "click",
+        "target": "#apply-discount-code",
+        "value": null,
+        "description": "Apply discount (ELEMENT DOESN'T EXIST)",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "click",
+        "target": "a.shopping_cart_link",
+        "value": null,
+        "description": "Open shopping cart",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "click",
+        "target": "#checkout",
+        "value": null,
+        "description": "Proceed to checkout",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "type",
+        "target": "#first-name",
+        "value": "{first_name}",
+        "description": "Enter first name",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "type",
+        "target": "#last-name",
+        "value": "{last_name}",
+        "description": "Enter last name",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "type",
+        "target": "#postal-code",
+        "value": "{postal_code}",
+        "description": "Enter postal code",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "click",
+        "target": "#continue",
+        "value": null,
+        "description": "Continue to next step",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      },
+      {
+        "action": "click",
+        "target": "#finish",
+        "value": null,
+        "description": "Finish purchase",
+        "fallback_coords": null,
+        "fallback_text": null,
+        "expected_screenshot": null
+      }
+    ],
+    "domains": [
+      "saucedemo.com"
+    ]
+  },
+  "media": null,
+  "success_condition": {
+    "description": "Checkout complete page showing order confirmation",
+    "url_pattern": "checkout-complete",
+    "screenshot_path": null
+  }
+}

@@ -14,11 +14,11 @@ browser-agents/
 │   ├── __init__.py      # Version and exports
 │   ├── cli.py           # Combined CLI entry point
 │   ├── config.py        # Settings via pydantic-settings (.env support)
-│   ├── converter.py     # Recording → ActionDefinition via LLM
+│   ├── converter.py     # Workflow → ActionDefinition via LLM
 │   ├── demo.py          # Visual demo mode (cursor, smooth movement)
 │   ├── llm.py           # LLM factory for Ollama
-│   ├── models.py        # Pydantic models for events and actions
-│   ├── playback.py      # Replay recordings
+│   ├── models.py        # Pydantic models (Workflow, RecordedEvent, ActionDefinition)
+│   ├── playback.py      # Replay workflows (events or action steps)
 │   ├── recorder.py      # Event capture via injected JS
 │   └── prompts/
 │       └── convert_recording.yaml  # LLM prompt for conversion
@@ -29,27 +29,29 @@ browser-agents/
 │   ├── test_converter.py    # Converter tests (mocked LLM)
 │   ├── test_models.py   # Unit tests - Pydantic validation
 │   └── test_preprocessing.py  # Event preprocessing tests
-└── recordings/          # JSONL storage
+└── workflows/           # Workflow JSON storage
 ```
 
 ## CLI Usage
 
 ```bash
-# Record browser interactions
+# Record browser interactions (saves to workflows/abc123.json)
 uv run browser-agents record https://example.com
-uv run browser-agents record https://example.com --output ./my-recordings
+uv run browser-agents record https://example.com --output ./my-workflows
 
-# Replay a recording
-uv run browser-agents replay recordings/abc123.jsonl
-uv run browser-agents replay recordings/abc123.jsonl --headless
+# Replay raw events from a workflow
+uv run browser-agents replay workflows/abc123.json
 
 # Visual demo mode (slow playback with cursor indicator)
-uv run browser-agents replay recordings/abc123.jsonl --demo
-uv run browser-agents replay recordings/abc123.jsonl --demo --delay 0.5 --speed 30
+uv run browser-agents replay workflows/abc123.json --demo
+uv run browser-agents replay workflows/abc123.json --demo --delay 0.5 --speed 30
 
-# Convert recording to action definition (requires Ollama)
-uv run browser-agents convert recordings/abc123.jsonl
-uv run browser-agents convert recordings/abc123.jsonl -o ./actions
+# Convert workflow events to action definition (requires Ollama)
+uv run browser-agents convert workflows/abc123.json
+
+# Replay action steps with parameter substitution
+uv run browser-agents replay workflows/abc123.json --action
+uv run browser-agents replay workflows/abc123.json --action --param username=foo --param password=bar
 
 # Help
 uv run browser-agents --help
@@ -122,24 +124,22 @@ uv run mypy src/
 - Return error strings for recoverable failures (not exceptions)
 - Let unexpected errors propagate
 
-## Recording Conventions
+## Workflow Format
+
+**Unified Workflow model:**
+- Single JSON file per session in `workflows/`
+- Contains: raw events + optional action definition + optional media refs
+- Convert adds action in-place (same file)
 
 **Event model:**
 - All events are Pydantic `RecordedEvent` models
-- Storage: JSONL (one event per line, append-only)
-- Validation: At boundary when reading files
+- Event types: `click`, `type`, `navigate`, `scroll`, `wait`
+- Action steps use `StepAction` enum for type safety
 
 **Selector strategy:**
 - Prefer data attributes (`[data-testid="..."]`)
 - Fall back to stable CSS selectors
-- Store coordinates as backup
-
-**Event types:**
-- `click` - element clicked
-- `type` - text entered
-- `navigate` - page URL changed
-- `scroll` - viewport scrolled
-- `wait` - explicit pause
+- Store coordinates as backup for resilience
 
 ## Windows Console Encoding
 

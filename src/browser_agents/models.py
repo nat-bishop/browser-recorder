@@ -1,11 +1,23 @@
-"""Pydantic models for recorded browser events and action definitions."""
+"""Pydantic models for recorded browser events, actions, and workflows."""
 
 from datetime import datetime
+from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
-# Event type used in both RecordedEvent and ActionStep
+
+class StepAction(str, Enum):
+    """Typed action types for workflow steps."""
+
+    navigate = "navigate"
+    click = "click"
+    type = "type"
+    scroll = "scroll"
+    wait = "wait"
+
+
+# Legacy type alias for backward compatibility during transition
 EventType = Literal["click", "type", "navigate", "scroll", "wait"]
 
 
@@ -53,12 +65,19 @@ class ActionParameter(BaseModel):
 class ActionStep(BaseModel):
     """A single step in an action workflow."""
 
-    action: EventType = Field(description="Action type: navigate, click, type, scroll, wait")
+    action: StepAction = Field(description="Action type: navigate, click, type, scroll, wait")
     target: str | None = Field(default=None, description="CSS selector or URL for the action")
     value: str | None = Field(
         default=None, description="Value with {param_name} placeholders for substitution"
     )
     description: str = Field(description="Human-readable description of this step")
+    # Fallback data for selector resilience (Phase 6: Vision LLM)
+    fallback_coords: list[int] | None = Field(
+        default=None, description="Backup click coordinates [x, y] if selector fails"
+    )
+    fallback_text: str | None = Field(
+        default=None, description="Visible text of button/link for visual matching"
+    )
 
 
 class ActionDefinition(BaseModel):
@@ -78,3 +97,48 @@ class ActionDefinition(BaseModel):
     )
     steps: list[ActionStep] = Field(description="Ordered steps to execute (typically 3-10)")
     domains: list[str] = Field(description="Allowed domains for safety validation")
+
+
+# =============================================================================
+# Workflow: Unified format combining recording + action + media
+# =============================================================================
+
+
+class MediaRefs(BaseModel):
+    """References to media files associated with a workflow."""
+
+    video: str | None = Field(default=None, description="Path to screen recording file")
+    audio: str | None = Field(default=None, description="Path to audio recording file")
+    transcript: list[dict] | None = Field(
+        default=None, description="Timestamped transcript from audio"
+    )
+
+
+class Workflow(BaseModel):
+    """Unified workflow combining raw recording, derived action, and media.
+
+    This is the single source of truth for a browser automation workflow:
+    - Raw events from recording (always present)
+    - LLM-derived action (optional, added by convert command)
+    - Media references (optional, for video/audio capture)
+    """
+
+    id: str = Field(description="Unique session identifier")
+    version: int = Field(default=1, description="Schema version for migrations")
+    source_url: str = Field(description="Initial URL where recording started")
+    created_at: datetime = Field(description="When workflow was created")
+
+    # Raw browser events (always present after recording)
+    events: list[RecordedEvent] = Field(
+        default_factory=list, description="Raw recorded browser events"
+    )
+
+    # LLM-derived action (optional, added by convert command)
+    action: ActionDefinition | None = Field(
+        default=None, description="Parameterized action derived from events"
+    )
+
+    # Media references (optional, for future video/audio capture)
+    media: MediaRefs | None = Field(
+        default=None, description="References to associated media files"
+    )

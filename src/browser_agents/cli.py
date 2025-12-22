@@ -2,8 +2,8 @@
 
 Usage:
     browser-agents record <url>     Start recording browser interactions
-    browser-agents replay <file>    Replay a recorded session
-    browser-agents convert <file>   Convert recording to action definition
+    browser-agents replay <file>    Replay a workflow
+    browser-agents convert <file>   Convert workflow events to action
     browser-agents --help           Show help
 """
 
@@ -13,12 +13,13 @@ from pathlib import Path
 
 import typer
 
+from browser_agents.converter import save_workflow
 from browser_agents.playback import (
     DEFAULT_DELAY,
     DEFAULT_MOUSE_STEPS,
-    replay_recording,
+    replay_workflow,
 )
-from browser_agents.recorder import BrowserRecorder, _save_recording
+from browser_agents.recorder import BrowserRecorder
 
 app = typer.Typer(
     name="browser-agents",
@@ -31,10 +32,10 @@ app = typer.Typer(
 def record(
     url: str = typer.Argument(..., help="URL to start recording from"),
     output_dir: Path = typer.Option(
-        Path("recordings"), "--output", "-o", help="Directory to save recordings"
+        Path("workflows"), "--output", "-o", help="Directory to save workflows"
     ),
 ) -> None:
-    """Record browser interactions to a JSONL file."""
+    """Record browser interactions to a workflow JSON file."""
     recorder = BrowserRecorder(url, output_dir)
 
     def handle_sigint(sig: int, frame: object) -> None:
@@ -43,16 +44,30 @@ def record(
 
     signal.signal(signal.SIGINT, handle_sigint)
 
-    recording = asyncio.run(recorder.record())
+    workflow = asyncio.run(recorder.record())
 
-    output_file = _save_recording(recording, output_dir)
-    typer.echo(f"\nRecorded {len(recording.events)} events")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_file = output_dir / f"{workflow.id}.json"
+    save_workflow(workflow, output_file)
+    typer.echo(f"\nRecorded {len(workflow.events)} events")
     typer.echo(f"Saved to: {output_file}")
 
 
 @app.command()
 def replay(
-    recording: Path = typer.Argument(..., help="Path to recording JSONL file"),
+    workflow_path: Path = typer.Argument(..., help="Path to workflow JSON file"),
+    action: bool = typer.Option(
+        False,
+        "--action",
+        "-a",
+        help="Replay action steps instead of raw events",
+    ),
+    param: list[str] | None = typer.Option(
+        None,
+        "--param",
+        "-p",
+        help="Parameter substitution (key=value, can repeat)",
+    ),
     demo: bool = typer.Option(
         False,
         "--demo",
@@ -70,89 +85,109 @@ def replay(
         help="Mouse movement smoothness (steps, higher = slower)",
     ),
 ) -> None:
-    """Replay a recorded browser session.
+    """Replay a workflow.
 
-    Use --demo for visual review with a visible cursor and smooth movement.
+    By default, replays raw recorded events. Use --action to replay the
+    parameterized action steps instead (requires running 'convert' first).
+
+    Examples:
+        browser-agents replay workflows/abc123.json
+        browser-agents replay workflows/abc123.json --action
+        browser-agents replay workflows/abc123.json --action --param username=foo --param password=bar
     """
-    if not recording.exists():
-        typer.echo(f"Recording not found: {recording}", err=True)
+    if not workflow_path.exists():
+        typer.echo(f"Workflow not found: {workflow_path}", err=True)
         raise typer.Exit(1)
 
+    # Parse param flags into dict
+    params: dict[str, str] = {}
+    if param:
+        for p in param:
+            if "=" in p:
+                key, value = p.split("=", 1)
+                params[key] = value
+            else:
+                typer.echo(f"Invalid param format: {p} (expected key=value)", err=True)
+                raise typer.Exit(1)
+
     success, total = asyncio.run(
-        replay_recording(
-            recording,
+        replay_workflow(
+            workflow_path,
+            use_action=action,
+            params=params if params else None,
             demo=demo,
             delay=delay,
             mouse_steps=speed,
         )
     )
 
-    typer.echo(f"\nReplay complete: {success}/{total} events succeeded")
+    if total == 0:
+        raise typer.Exit(1)
+
+    typer.echo(f"\nReplay complete: {success}/{total} succeeded")
     if success < total:
         raise typer.Exit(1)
 
 
 @app.command()
 def convert(
-    recording_path: Path = typer.Argument(..., help="Path to recording JSONL file"),
-    output_dir: Path = typer.Option(
-        Path("actions"), "--output", "-o", help="Directory to save action definitions"
-    ),
+    workflow_path: Path = typer.Argument(..., help="Path to workflow JSON file"),
     temperature: float = typer.Option(
         0.0, "--temperature", "-t", help="LLM temperature (0.0 = deterministic)"
     ),
 ) -> None:
-    """Convert a recording to a reusable action definition using LLM analysis.
+    """Convert workflow events to an action definition using LLM analysis.
 
-    Reads a raw recording JSONL file and uses an LLM (via Ollama) to:
+    Reads a workflow JSON file and uses an LLM (via Ollama) to:
     - Extract variable parameters (usernames, passwords, etc.)
     - Collapse verbose events into logical steps
     - Generate a clean, parameterized action definition
 
-    The output is saved as a JSON file in the actions/ directory.
+    The action is saved back to the same workflow file (in-place update).
 
     Examples:
-        browser-agents convert recordings/abc123.jsonl
-        browser-agents convert recordings/abc123.jsonl --output ./my-actions
+        browser-agents convert workflows/abc123.json
     """
     # Import here to avoid loading LangChain on every CLI invocation
-    from browser_agents.converter import convert_recording_to_action, load_recording
+    from browser_agents.converter import (
+        convert_workflow_to_action,
+        load_workflow,
+    )
 
-    if not recording_path.exists():
-        typer.echo(f"Recording not found: {recording_path}", err=True)
+    if not workflow_path.exists():
+        typer.echo(f"Workflow not found: {workflow_path}", err=True)
         raise typer.Exit(1)
 
-    # Load recording
-    typer.echo(f"Loading recording: {recording_path}")
+    # Load workflow
+    typer.echo(f"Loading workflow: {workflow_path}")
     try:
-        recording = load_recording(recording_path)
+        workflow = load_workflow(workflow_path)
     except Exception as e:
-        typer.echo(f"Failed to load recording: {e}", err=True)
+        typer.echo(f"Failed to load workflow: {e}", err=True)
         raise typer.Exit(1)
 
-    typer.echo(f"Found {len(recording.events)} events from {recording.start_url}")
+    typer.echo(f"Found {len(workflow.events)} events from {workflow.source_url}")
     typer.echo("Converting to action definition...")
 
     # Convert using LLM
-    result = asyncio.run(convert_recording_to_action(recording, temperature=temperature))
+    result = asyncio.run(convert_workflow_to_action(workflow, temperature=temperature))
 
     if isinstance(result, str):
         # Error string returned
         typer.echo(f"Conversion failed: {result}", err=True)
         raise typer.Exit(1)
 
-    # Success - save action definition
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_file = output_dir / f"{result.name}.json"
+    # Success - update workflow with action and save in-place
+    workflow.action = result
+    save_workflow(workflow, workflow_path)
 
-    with output_file.open("w", encoding="utf-8") as f:
-        f.write(result.model_dump_json(indent=2))
-
+    # Sanitize description for Windows console encoding
+    safe_desc = result.description.encode("ascii", "replace").decode("ascii")
     typer.echo(f"\nCreated action: {result.name}")
-    typer.echo(f"Description: {result.description}")
+    typer.echo(f"Description: {safe_desc}")
     typer.echo(f"Parameters: {len(result.parameters)}")
     typer.echo(f"Steps: {len(result.steps)}")
-    typer.echo(f"Saved to: {output_file}")
+    typer.echo(f"Updated: {workflow_path}")
 
 
 if __name__ == "__main__":

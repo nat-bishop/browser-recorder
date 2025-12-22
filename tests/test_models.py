@@ -9,7 +9,10 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from browser_agents.models import RecordedEvent, Recording
+from browser_agents.models import (
+    RecordedEvent,
+    Recording,
+)
 
 
 class TestRecordedEvent:
@@ -144,3 +147,180 @@ class TestRecording:
             started_at=datetime.now(UTC),
         )
         assert recording.events == []
+
+
+class TestStepAction:
+    """Tests for StepAction enum."""
+
+    def test_all_action_types_exist(self) -> None:
+        """All expected action types are defined."""
+        from browser_agents.models import StepAction
+
+        assert StepAction.navigate == "navigate"
+        assert StepAction.click == "click"
+        assert StepAction.type == "type"
+        assert StepAction.scroll == "scroll"
+        assert StepAction.wait == "wait"
+
+    def test_step_action_is_string_enum(self) -> None:
+        """StepAction values can be used as strings."""
+        from browser_agents.models import StepAction
+
+        assert str(StepAction.click) == "StepAction.click"
+        assert StepAction.click.value == "click"
+
+
+class TestActionStep:
+    """Tests for ActionStep model."""
+
+    def test_action_step_with_selector(self) -> None:
+        """ActionStep with target selector is valid."""
+        from browser_agents.models import ActionStep, StepAction
+
+        step = ActionStep(
+            action=StepAction.click,
+            target="#submit-btn",
+            description="Click the submit button",
+        )
+        assert step.action == StepAction.click
+        assert step.target == "#submit-btn"
+
+    def test_action_step_with_value_placeholder(self) -> None:
+        """ActionStep with parameter placeholder is valid."""
+        from browser_agents.models import ActionStep, StepAction
+
+        step = ActionStep(
+            action=StepAction.type,
+            target="#email",
+            value="{email}",
+            description="Enter email address",
+        )
+        assert step.value == "{email}"
+
+    def test_action_step_with_fallback_coords(self) -> None:
+        """ActionStep with fallback coordinates is valid."""
+        from browser_agents.models import ActionStep, StepAction
+
+        step = ActionStep(
+            action=StepAction.click,
+            target="#btn",
+            fallback_coords=[100, 200],
+            fallback_text="Submit",
+            description="Click submit",
+        )
+        assert step.fallback_coords == [100, 200]
+        assert step.fallback_text == "Submit"
+
+    def test_action_step_serialization_roundtrip(self) -> None:
+        """ActionStep can be serialized to JSON and back."""
+        from browser_agents.models import ActionStep, StepAction
+
+        original = ActionStep(
+            action=StepAction.click,
+            target="#btn",
+            fallback_coords=[50, 75],
+            description="Click button",
+        )
+        json_str = original.model_dump_json()
+        restored = ActionStep.model_validate_json(json_str)
+        assert restored == original
+        assert restored.fallback_coords == [50, 75]
+
+
+class TestWorkflow:
+    """Tests for Workflow model."""
+
+    def test_workflow_with_events(self) -> None:
+        """Workflow with events is valid."""
+        from browser_agents.models import RecordedEvent, Workflow
+
+        workflow = Workflow(
+            id="abc123",
+            source_url="https://example.com",
+            created_at=datetime.now(UTC),
+            events=[
+                RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
+                RecordedEvent(timestamp=2.0, event_type="click", selector="#btn"),
+            ],
+        )
+        assert workflow.id == "abc123"
+        assert len(workflow.events) == 2
+        assert workflow.action is None
+        assert workflow.media is None
+
+    def test_workflow_with_action(self) -> None:
+        """Workflow with action definition is valid."""
+        from browser_agents.models import (
+            ActionDefinition,
+            ActionParameter,
+            ActionStep,
+            RecordedEvent,
+            StepAction,
+            Workflow,
+        )
+
+        action = ActionDefinition(
+            name="login",
+            description="Log into the site",
+            parameters=[
+                ActionParameter(name="email", description="Email", example="test@example.com")
+            ],
+            steps=[ActionStep(action=StepAction.click, target="#btn", description="Click")],
+            domains=["example.com"],
+        )
+
+        workflow = Workflow(
+            id="test123",
+            source_url="https://example.com",
+            created_at=datetime.now(UTC),
+            events=[RecordedEvent(timestamp=1.0, event_type="click", selector="#btn")],
+            action=action,
+        )
+        assert workflow.action is not None
+        assert workflow.action.name == "login"
+
+    def test_workflow_with_media_refs(self) -> None:
+        """Workflow with media references is valid."""
+        from browser_agents.models import MediaRefs, Workflow
+
+        media = MediaRefs(video="recording.webm", audio="audio.mp3")
+
+        workflow = Workflow(
+            id="media123",
+            source_url="https://example.com",
+            created_at=datetime.now(UTC),
+            events=[],
+            media=media,
+        )
+        assert workflow.media is not None
+        assert workflow.media.video == "recording.webm"
+
+    def test_workflow_serialization_roundtrip(self) -> None:
+        """Workflow can be serialized to JSON and back."""
+        from browser_agents.models import RecordedEvent, Workflow
+
+        original = Workflow(
+            id="roundtrip",
+            source_url="https://example.com",
+            created_at=datetime.now(UTC),
+            events=[
+                RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
+            ],
+        )
+        json_str = original.model_dump_json()
+        restored = Workflow.model_validate_json(json_str)
+        assert restored.id == original.id
+        assert restored.source_url == original.source_url
+        assert len(restored.events) == 1
+
+    def test_workflow_version_defaults_to_1(self) -> None:
+        """Workflow version defaults to 1."""
+        from browser_agents.models import Workflow
+
+        workflow = Workflow(
+            id="test",
+            source_url="https://example.com",
+            created_at=datetime.now(UTC),
+            events=[],
+        )
+        assert workflow.version == 1

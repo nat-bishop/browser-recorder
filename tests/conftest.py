@@ -12,55 +12,70 @@ from unittest.mock import AsyncMock
 import pytest
 
 if TYPE_CHECKING:
-    from browser_agents.models import ActionDefinition, Recording
+    from browser_agents.models import ActionDefinition, Workflow
 
 
 @pytest.fixture
-def recordings_dir(tmp_path: Path) -> Path:
-    """Temporary directory for test recordings.
+def workflows_dir(tmp_path: Path) -> Path:
+    """Temporary directory for test workflows.
 
     Uses pytest's tmp_path fixture which creates a unique temp dir per test.
     Automatically cleaned up after test completes.
     """
-    recordings = tmp_path / "recordings"
-    recordings.mkdir()
-    return recordings
+    workflows = tmp_path / "workflows"
+    workflows.mkdir()
+    return workflows
 
 
 @pytest.fixture
-def sample_recording(recordings_dir: Path) -> Path:
-    """Create a minimal valid recording for testing.
+def sample_workflow(workflows_dir: Path) -> Path:
+    """Create a minimal valid workflow for testing.
 
-    Returns path to a JSONL file with:
-    - Valid metadata header
+    Returns path to a JSON file with:
+    - Valid workflow metadata
     - One navigate event
     - One click event
     """
-    recording = recordings_dir / "test_session.jsonl"
-    recording.write_text(
-        '{"session_id": "test123", "start_url": "https://example.com", "started_at": "2025-01-01T00:00:00+00:00"}\n'
-        '{"timestamp": 1.0, "event_type": "navigate", "url": "https://example.com"}\n'
-        '{"timestamp": 2.0, "event_type": "click", "selector": "#main-button", "x": 100, "y": 200}\n'
+    from browser_agents.models import RecordedEvent, Workflow
+
+    workflow = Workflow(
+        id="test123",
+        source_url="https://example.com",
+        created_at=datetime.now(UTC),
+        events=[
+            RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
+            RecordedEvent(timestamp=2.0, event_type="click", selector="#main-button", x=100, y=200),
+        ],
     )
-    return recording
+
+    workflow_file = workflows_dir / "test_session.json"
+    workflow_file.write_text(workflow.model_dump_json(indent=2))
+    return workflow_file
 
 
 @pytest.fixture
-def empty_recording(recordings_dir: Path) -> Path:
-    """Create a recording with only metadata (no events)."""
-    recording = recordings_dir / "empty_session.jsonl"
-    recording.write_text(
-        '{"session_id": "empty", "start_url": "https://example.com", "started_at": "2025-01-01T00:00:00+00:00"}\n'
+def empty_workflow(workflows_dir: Path) -> Path:
+    """Create a workflow with no events."""
+    from browser_agents.models import Workflow
+
+    workflow = Workflow(
+        id="empty",
+        source_url="https://example.com",
+        created_at=datetime.now(UTC),
+        events=[],
     )
-    return recording
+
+    workflow_file = workflows_dir / "empty_session.json"
+    workflow_file.write_text(workflow.model_dump_json(indent=2))
+    return workflow_file
 
 
 @pytest.fixture
-def invalid_recording(recordings_dir: Path) -> Path:
-    """Create an invalid recording file for error testing."""
-    recording = recordings_dir / "invalid.jsonl"
-    recording.write_text("not valid json\n")
-    return recording
+def invalid_workflow(workflows_dir: Path) -> Path:
+    """Create an invalid workflow file for error testing."""
+    workflow_file = workflows_dir / "invalid.json"
+    workflow_file.write_text("not valid json\n")
+    return workflow_file
 
 
 # =============================================================================
@@ -69,14 +84,14 @@ def invalid_recording(recordings_dir: Path) -> Path:
 
 
 @pytest.fixture
-def sample_recording_model() -> "Recording":
-    """Create a Recording model for converter tests."""
-    from browser_agents.models import RecordedEvent, Recording
+def sample_workflow_model() -> "Workflow":
+    """Create a Workflow model for converter tests."""
+    from browser_agents.models import RecordedEvent, Workflow
 
-    return Recording(
-        session_id="test123",
-        start_url="https://example.com",
-        started_at=datetime.now(UTC),
+    return Workflow(
+        id="test123",
+        source_url="https://example.com",
+        created_at=datetime.now(UTC),
         events=[
             RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
             RecordedEvent(
@@ -88,14 +103,14 @@ def sample_recording_model() -> "Recording":
 
 
 @pytest.fixture
-def verbose_recording_model() -> "Recording":
-    """Create a Recording with verbose keystroke events for preprocessing tests."""
-    from browser_agents.models import RecordedEvent, Recording
+def verbose_workflow_model() -> "Workflow":
+    """Create a Workflow with verbose keystroke events for preprocessing tests."""
+    from browser_agents.models import RecordedEvent, Workflow
 
-    return Recording(
-        session_id="verbose123",
-        start_url="https://example.com",
-        started_at=datetime.now(UTC),
+    return Workflow(
+        id="verbose123",
+        source_url="https://example.com",
+        created_at=datetime.now(UTC),
         events=[
             RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
             # Keystroke sequence that should be collapsed
@@ -118,7 +133,7 @@ def verbose_recording_model() -> "Recording":
 @pytest.fixture
 def mock_action_definition() -> "ActionDefinition":
     """Create a valid ActionDefinition for mocking LLM responses."""
-    from browser_agents.models import ActionDefinition, ActionParameter, ActionStep
+    from browser_agents.models import ActionDefinition, ActionParameter, ActionStep, StepAction
 
     return ActionDefinition(
         name="login_user",
@@ -132,18 +147,18 @@ def mock_action_definition() -> "ActionDefinition":
         ],
         steps=[
             ActionStep(
-                action="navigate",
+                action=StepAction.navigate,
                 target="https://example.com",
                 description="Go to example.com",
             ),
             ActionStep(
-                action="type",
+                action=StepAction.type,
                 target="#email",
                 value="{email}",
                 description="Enter email address",
             ),
             ActionStep(
-                action="click",
+                action=StepAction.click,
                 target="#submit",
                 description="Click submit button",
             ),

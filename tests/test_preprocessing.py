@@ -10,7 +10,7 @@ from browser_agents.converter import preprocess_events
 from browser_agents.models import RecordedEvent
 
 if TYPE_CHECKING:
-    from browser_agents.models import Recording
+    from browser_agents.models import Workflow
 
 
 class TestPreprocessEvents:
@@ -121,10 +121,10 @@ class TestPreprocessEvents:
         assert result[0]["x"] == 150
         assert result[0]["y"] == 250
 
-    def test_verbose_recording_fixture(self, verbose_recording_model: "Recording") -> None:
-        """Test with the verbose recording fixture from conftest."""
+    def test_verbose_workflow_fixture(self, verbose_workflow_model: "Workflow") -> None:
+        """Test with the verbose workflow fixture from conftest."""
         # 10 input events should collapse to fewer
-        result = preprocess_events(verbose_recording_model.events)
+        result = preprocess_events(verbose_workflow_model.events)
 
         # Should have: 1 navigate + 1 collapsed type + 1 click + 1 deduplicated navigate = 4
         assert len(result) == 4

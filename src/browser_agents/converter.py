@@ -1,22 +1,21 @@
 """Convert raw browser recordings to ActionDefinitions using LLM analysis.
 
 This module handles:
-1. Loading recordings from JSONL files
+1. Loading workflows from JSON files
 2. Event preprocessing (collapsing keystrokes, removing noise)
 3. Prompt loading from YAML
 4. LLM invocation with structured output
-5. Retry and validation logic
+5. Saving updated workflows with action field populated
 """
 
 import json
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from browser_agents.llm import get_structured_llm
-from browser_agents.models import ActionDefinition, RecordedEvent, Recording
+from browser_agents.models import ActionDefinition, RecordedEvent, Workflow
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -25,42 +24,27 @@ MAX_EVENTS = 100
 MIN_EVENTS = 2
 
 
-def load_recording(path: Path) -> Recording:
-    """Load a recording from a JSONL file.
+def load_workflow(path: Path) -> Workflow:
+    """Load a workflow from a JSON file.
 
     Args:
-        path: Path to the .jsonl recording file.
+        path: Path to the .json workflow file.
 
     Returns:
-        Recording object with metadata and events.
+        Workflow object with metadata, events, and optional action.
 
     Raises:
         FileNotFoundError: If the file doesn't exist.
         json.JSONDecodeError: If the file contains invalid JSON.
         ValueError: If the file is empty or malformed.
     """
-    events: list[RecordedEvent] = []
-
     with path.open(encoding="utf-8") as f:
-        lines = f.readlines()
+        content = f.read()
 
-    if not lines:
-        raise ValueError(f"Recording file is empty: {path}")
+    if not content.strip():
+        raise ValueError(f"Workflow file is empty: {path}")
 
-    # First line is metadata
-    metadata = json.loads(lines[0])
-
-    # Remaining lines are events
-    for line in lines[1:]:
-        if line.strip():
-            events.append(RecordedEvent.model_validate_json(line))
-
-    return Recording(
-        session_id=metadata.get("session_id", "unknown"),
-        start_url=metadata.get("start_url", "about:blank"),
-        started_at=datetime.fromisoformat(metadata.get("started_at", "2000-01-01T00:00:00+00:00")),
-        events=events,
-    )
+    return Workflow.model_validate_json(content)
 
 
 def preprocess_events(events: list[RecordedEvent]) -> list[dict[str, Any]]:
@@ -153,12 +137,23 @@ def load_prompt() -> dict[str, str]:
     return {k: str(v) for k, v in data.items()}
 
 
-async def convert_recording_to_action(
-    recording: Recording,
+def save_workflow(workflow: Workflow, path: Path) -> None:
+    """Save a workflow to a JSON file.
+
+    Args:
+        workflow: The Workflow object to save.
+        path: Path to save the workflow to.
+    """
+    with path.open("w", encoding="utf-8") as f:
+        f.write(workflow.model_dump_json(indent=2))
+
+
+async def convert_workflow_to_action(
+    workflow: Workflow,
     max_retries: int = 2,
     temperature: float = 0.0,
 ) -> ActionDefinition | str:
-    """Convert a raw recording to an ActionDefinition using LLM analysis.
+    """Convert a workflow's events to an ActionDefinition using LLM analysis.
 
     This function:
     1. Preprocesses events to reduce noise
@@ -167,7 +162,7 @@ async def convert_recording_to_action(
     4. Validates the response
 
     Args:
-        recording: The Recording object to convert.
+        workflow: The Workflow object to convert.
         max_retries: Number of retry attempts for transient failures.
         temperature: LLM temperature (0.0 = deterministic).
 
@@ -175,19 +170,19 @@ async def convert_recording_to_action(
         ActionDefinition on success, or error string on failure.
 
     Example:
-        >>> from browser_agents.playback import load_recording
-        >>> recording = load_recording(Path("recordings/abc.jsonl"))
-        >>> result = await convert_recording_to_action(recording)
+        >>> workflow = load_workflow(Path("workflows/abc.json"))
+        >>> result = await convert_workflow_to_action(workflow)
         >>> if isinstance(result, ActionDefinition):
-        ...     print(f"Created action: {result.name}")
+        ...     workflow.action = result
+        ...     save_workflow(workflow, Path("workflows/abc.json"))
     """
     try:
         # Preprocess events
-        events = preprocess_events(recording.events)
+        events = preprocess_events(workflow.events)
 
         # Validate event count
         if len(events) < MIN_EVENTS:
-            return f"Recording too short: {len(events)} events (minimum {MIN_EVENTS})"
+            return f"Workflow too short: {len(events)} events (minimum {MIN_EVENTS})"
 
         if len(events) > MAX_EVENTS:
             events = events[:MAX_EVENTS]
@@ -197,7 +192,7 @@ async def convert_recording_to_action(
 
         # Build messages
         user_content = prompts["user_template"].format(
-            start_url=recording.start_url,
+            start_url=workflow.source_url,
             event_count=len(events),
             events_json=json.dumps(events, indent=2),
         )
@@ -238,4 +233,4 @@ async def convert_recording_to_action(
     except (ConnectionError, TimeoutError) as e:
         return f"LLM connection failed: {e}"
     except json.JSONDecodeError as e:
-        return f"Invalid JSON in recording: {e}"
+        return f"Invalid JSON in workflow: {e}"

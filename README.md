@@ -11,25 +11,35 @@ uv sync --extra dev
 # Install Playwright browsers
 uv run playwright install chromium
 
-# Record a session
+# Record a session (saves to workflows/<session-id>.json)
 uv run browser-agents record https://example.com
 
-# Replay a recording
-uv run browser-agents replay recordings/<session-id>.jsonl
-
-# Replay in headless mode
-uv run browser-agents replay recordings/<session-id>.jsonl --headless
+# Replay raw events from a workflow
+uv run browser-agents replay workflows/<session-id>.json
 
 # Visual demo mode with cursor indicator and smooth movement
-uv run browser-agents replay recordings/<session-id>.jsonl --demo
+uv run browser-agents replay workflows/<session-id>.json --demo
 
 # Demo mode with custom timing
-uv run browser-agents replay recordings/<session-id>.jsonl --demo --delay 0.5 --speed 30
+uv run browser-agents replay workflows/<session-id>.json --demo --delay 0.5 --speed 30
 
-# Convert recording to action definition (requires Ollama)
-uv run browser-agents convert recordings/<session-id>.jsonl
-uv run browser-agents convert recordings/<session-id>.jsonl -o ./actions
+# Convert workflow events to action definition (requires Ollama)
+uv run browser-agents convert workflows/<session-id>.json
+
+# Replay action steps with parameter substitution
+uv run browser-agents replay workflows/<session-id>.json --action
+uv run browser-agents replay workflows/<session-id>.json --action --param username=foo --param password=bar
 ```
+
+## Workflow Format
+
+Browser-agents uses a unified `Workflow` JSON format stored in `workflows/`:
+
+- **Raw events**: Captured browser interactions (clicks, typing, navigation)
+- **Action definition**: LLM-derived parameterized steps (added by `convert`)
+- **Media refs**: Optional video/audio references (future)
+
+This single-file format enables provenance tracking (raw events are preserved alongside derived actions).
 
 ## Development
 

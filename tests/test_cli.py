@@ -32,10 +32,10 @@ class TestCLIHelp:
         assert "URL" in result.stdout or "url" in result.stdout.lower()
 
     def test_replay_help(self) -> None:
-        """replay --help shows recording argument."""
+        """replay --help shows workflow argument."""
         result = runner.invoke(app, ["replay", "--help"])
         assert result.exit_code == 0
-        assert "recording" in result.stdout.lower()
+        assert "workflow" in result.stdout.lower()
 
     def test_no_args_shows_help(self) -> None:
         """Running with no args shows help (no_args_is_help=True).
@@ -54,7 +54,7 @@ class TestReplayCommand:
 
     def test_replay_missing_file_errors(self) -> None:
         """Replay with nonexistent file returns error."""
-        result = runner.invoke(app, ["replay", "nonexistent.jsonl"])
+        result = runner.invoke(app, ["replay", "nonexistent.json"])
         assert result.exit_code == 1
         # Error message may be in stdout or stderr, check combined output
         assert "not found" in result.output.lower()
@@ -65,6 +65,12 @@ class TestReplayCommand:
         assert "--demo" in result.stdout or "-d" in result.stdout
         assert "--delay" in result.stdout
         assert "--speed" in result.stdout
+
+    def test_replay_accepts_action_flag(self) -> None:
+        """Replay accepts --action flag for action replay."""
+        result = runner.invoke(app, ["replay", "--help"])
+        assert "--action" in result.stdout or "-a" in result.stdout
+        assert "--param" in result.stdout or "-p" in result.stdout
 
 
 class TestRecordCommand:
@@ -82,9 +88,9 @@ class TestRecordCommand:
 
 
 class TestCLIWithFixtures:
-    """Tests using recording fixtures from conftest.py."""
+    """Tests using workflow fixtures from conftest.py."""
 
-    def test_replay_valid_recording_path(self, sample_recording: Path) -> None:
+    def test_replay_valid_workflow_path(self, sample_workflow: Path) -> None:
         """Replay with valid file path doesn't error on path check.
 
         Note: This will still fail because we can't actually launch
@@ -92,8 +98,8 @@ class TestCLIWithFixtures:
         """
         # We can't actually run replay without a browser,
         # but we can verify the file exists check passes
-        assert sample_recording.exists()
+        assert sample_workflow.exists()
 
         # In a real integration test with browser, this would work:
-        # result = runner.invoke(app, ["replay", str(sample_recording), "--headless"])
+        # result = runner.invoke(app, ["replay", str(sample_workflow)])
         # assert result.exit_code == 0

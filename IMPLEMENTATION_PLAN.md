@@ -16,36 +16,39 @@ High-level roadmap for browser-agents. Each phase builds on the previous.
 
 ## Phase 1: Recording Foundation (MVP) ✅
 
-**Goal:** Record browser interactions to JSONL files.
+**Goal:** Record browser interactions to workflow files.
 
 - [x] Project setup (pyproject.toml, CLAUDE.md)
-- [x] Pydantic models for events (`RecordedEvent`, `Recording`)
+- [x] Pydantic models for events (`RecordedEvent`, `Workflow`)
 - [x] Event capture via injected JavaScript listeners
-- [x] JSONL storage (append-only)
+- [x] Unified Workflow JSON storage
 - [x] CLI (`uv run browser-agents record <url>`)
 
 **Implementation notes:**
 - Uses `page.expose_function()` + `page.add_init_script()` to inject event listeners
 - Captures click, input, scroll, and navigation events
 - Selector generation prioritizes: data-testid > id > aria-label > name > tag+classes
+- Output: Single JSON file per session in `workflows/` directory
 
-**Success:** Run recorder, click around a site, get valid JSONL output.
+**Success:** Run recorder, click around a site, get valid workflow JSON output.
 
 ## Phase 2: Playback ✅
 
 **Goal:** Replay recorded sessions reliably.
 
-- [x] Load JSONL and validate with Pydantic
+- [x] Load workflow JSON and validate with Pydantic
 - [x] Execute actions via Playwright
 - [x] Success/failure reporting
 - [x] Screenshot on failure for debugging
 - [x] CLI (`uv run browser-agents replay <file>`)
+- [x] Action replay with `--action` flag
+- [x] Parameter substitution with `--param` flag
 
 **Success:** Record a session, replay it, same result.
 
-## Phase 3: Recording → Action Conversion
+## Phase 3: Workflow → Action Conversion ✅
 
-**Goal:** Convert raw recordings into clean, parameterized action definitions using LLM.
+**Goal:** Convert raw workflow events into clean, parameterized action definitions using LLM.
 
 Raw recordings are messy (hundreds of low-level events). Use LLM summarization to extract:
 - Action name and description
@@ -53,12 +56,13 @@ Raw recordings are messy (hundreds of low-level events). Use LLM summarization t
 - Simplified step sequence with `{parameter}` placeholders
 
 - [x] Define `ActionDefinition` Pydantic model
-- [x] Create LLM prompt for recording → action conversion
-- [x] Implement `convert_recording_to_action()` function
-- [x] CLI: `uv run browser-agents convert recordings/foo.jsonl`
-- [x] Store converted actions in `actions/` directory
+- [x] Define unified `Workflow` model (events + action + media refs)
+- [x] Create LLM prompt for workflow → action conversion
+- [x] Implement `convert_workflow_to_action()` function
+- [x] CLI: `uv run browser-agents convert workflows/foo.json`
+- [x] In-place update: action saved to same workflow file
 
-**Success:** `browser-agents convert recording.jsonl` outputs a clean action JSON.
+**Success:** `browser-agents convert workflow.json` adds action definition to the workflow.
 
 ### Implementation Notes (Dec 2025)
 
@@ -88,7 +92,7 @@ async def checkout(shipping_address: str) -> ActionResult:
 ### Tasks
 
 - [ ] Decorator-based tool interface (`@tools.action()`)
-- [ ] Parameter substitution in action playback
+- [x] Parameter substitution in action playback (via `--param` CLI flag)
 - [ ] `ActionResult` return type for agent decision-making
 - [ ] Domain restrictions for safety (`allowed_domains=['example.com']`)
 - [ ] LangChain compatibility
@@ -134,21 +138,30 @@ async def checkout(shipping_address: str) -> ActionResult:
 
 ## Current Focus
 
-**Phase 3 Complete** - Recording → Action conversion with LLM analysis is working.
+**Phase 3 Complete** - Workflow conversion with unified format is working.
 
-### Phase 3: Convert Command
+### Unified Workflow Format
 
-Convert raw recordings to parameterized action definitions:
+All data now uses a single `Workflow` JSON format in `workflows/`:
 ```bash
-uv run browser-agents convert recordings/abc123.jsonl
+# Record creates workflow with raw events
+uv run browser-agents record https://example.com
+
+# Convert adds action definition in-place
+uv run browser-agents convert workflows/abc123.json
+
+# Replay supports both modes
+uv run browser-agents replay workflows/abc123.json           # raw events
+uv run browser-agents replay workflows/abc123.json --action  # action steps
 ```
 
 Features:
+- Unified `Workflow` model: events + action + media refs
 - Event preprocessing (collapses keystrokes, removes scroll noise)
 - LLM-based analysis using `gpt-oss:120b` via Ollama
 - Structured output with Pydantic validation
 - Automatic parameter extraction (usernames, passwords, etc.)
-- Retry logic with exponential backoff
+- Parameter substitution with `--param key=value` flags
 
 ### Test Coverage (44 tests, all passing)
 - Unit tests: Models, CLI, preprocessing, converter (mocked LLM)

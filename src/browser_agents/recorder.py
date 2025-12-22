@@ -1,7 +1,6 @@
 """Browser event recorder using injected JavaScript listeners."""
 
 import asyncio
-import json
 import signal
 import time
 import uuid
@@ -12,7 +11,7 @@ from typing import Any
 import typer
 from playwright.async_api import Page, async_playwright
 
-from browser_agents.models import RecordedEvent, Recording
+from browser_agents.models import RecordedEvent, Workflow
 
 app = typer.Typer(help="Record browser interactions for automation.")
 
@@ -184,7 +183,7 @@ class BrowserRecorder:
 
         page.on("framenavigated", on_navigate)
 
-    async def record(self) -> Recording:
+    async def record(self) -> Workflow:
         """Start recording and wait for user to stop."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -209,10 +208,10 @@ class BrowserRecorder:
 
             await browser.close()
 
-        return Recording(
-            session_id=self.session_id,
-            start_url=self.start_url,
-            started_at=self.started_at,
+        return Workflow(
+            id=self.session_id,
+            source_url=self.start_url,
+            created_at=self.started_at,
             events=self.events,
         )
 
@@ -221,24 +220,11 @@ class BrowserRecorder:
         self._running = False
 
 
-def _save_recording(recording: Recording, output_dir: Path) -> Path:
-    """Save recording to JSONL file."""
-    output_file = output_dir / f"{recording.session_id}.jsonl"
-    with output_file.open("w") as f:
-        # Write metadata as first line
-        f.write(
-            json.dumps(
-                {
-                    "session_id": recording.session_id,
-                    "start_url": recording.start_url,
-                    "started_at": recording.started_at.isoformat(),
-                }
-            )
-            + "\n"
-        )
-        # Write events
-        for event in recording.events:
-            f.write(event.model_dump_json() + "\n")
+def _save_workflow(workflow: Workflow, output_dir: Path) -> Path:
+    """Save workflow to JSON file."""
+    output_file = output_dir / f"{workflow.id}.json"
+    with output_file.open("w", encoding="utf-8") as f:
+        f.write(workflow.model_dump_json(indent=2))
     return output_file
 
 
@@ -246,7 +232,7 @@ def _save_recording(recording: Recording, output_dir: Path) -> Path:
 def record(
     url: str = typer.Argument(..., help="URL to start recording from"),
     output_dir: Path = typer.Option(
-        Path("recordings"), "--output", "-o", help="Directory to save recordings"
+        Path("workflows"), "--output", "-o", help="Directory to save workflows"
     ),
 ) -> None:
     """Start recording browser interactions."""
@@ -260,11 +246,11 @@ def record(
     signal.signal(signal.SIGINT, handle_sigint)
 
     # Run the recorder
-    recording = asyncio.run(recorder.record())
+    workflow = asyncio.run(recorder.record())
 
     # Save
-    output_file = _save_recording(recording, output_dir)
-    typer.echo(f"\nRecorded {len(recording.events)} events")
+    output_file = _save_workflow(workflow, output_dir)
+    typer.echo(f"\nRecorded {len(workflow.events)} events")
     typer.echo(f"Saved to: {output_file}")
 
 

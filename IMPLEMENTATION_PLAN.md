@@ -1,230 +1,304 @@
-# Implementation Plan
+# Production Browser Automation System - Implementation Progress
 
-High-level roadmap for browser-agents. Each phase builds on the previous.
+## Overview
 
-## Research Summary (Dec 2024)
+Building a production-grade browser recording system with:
+- Chrome Extension for universal capture (including iframes)
+- Codegen-style selectors (role, label, placeholder, text, testid, css)
+- Video + audio recording (synchronized with events)
+- Session-based storage with LLM-derived workflows
 
-**Key finding:** This project is NOT duplicating existing tools. The use case (constrained, pre-recorded workflows as agent tools) is different from:
+**Explicitly NOT included (by design):**
+- Network traffic capture (security concerns, marginal LLM value)
+- Screenshots (video covers this)
 
-- [Browser-Use](https://github.com/browser-use/browser-use) - gives AI free reign over browser
-- [Skyvern](https://github.com/Skyvern-AI/skyvern) - dynamic AI control, not recorded workflows
-- [Playwright Codegen](https://playwright.dev/docs/codegen) - generates test code, not replayable actions
+## Progress Summary
 
-**What we borrow:**
-- Browser-Use's decorator pattern for tool registration
-- Skyvern's Vision LLM approach (Phase 6, future)
-
-## Phase 1: Recording Foundation (MVP) ✅
-
-**Goal:** Record browser interactions to workflow files.
-
-- [x] Project setup (pyproject.toml, CLAUDE.md)
-- [x] Pydantic models for events (`RecordedEvent`, `Workflow`)
-- [x] Event capture via injected JavaScript listeners
-- [x] Unified Workflow JSON storage
-- [x] CLI (`uv run browser-agents record <url>`)
-- [x] Browser close detection (stops recording when user closes window)
-- [x] Workflow metadata (`--name`, `--description` flags)
-- [x] `list` command to view all workflows
-
-**Implementation notes:**
-- Uses `page.expose_function()` + `page.add_init_script()` to inject event listeners
-- Captures click, input, scroll, and navigation events
-- Selector generation prioritizes: data-testid > id > aria-label > name > tag+classes
-- Output: Session folder `workflows/{session_id}/workflow.json` with screenshots
-- Browser close detection via page "close" event (Ctrl+C also works)
-
-**Success:** Run recorder, click around a site, get valid workflow JSON output.
-
-## Phase 2: Playback ✅
-
-**Goal:** Replay recorded sessions reliably.
-
-- [x] Load workflow JSON and validate with Pydantic
-- [x] Execute actions via Playwright
-- [x] Success/failure reporting
-- [x] Screenshot on failure for debugging
-- [x] CLI (`uv run browser-agents replay <file>`)
-- [x] Action replay with `--action` flag
-- [x] Parameter substitution with `--param` flag
-
-**Success:** Record a session, replay it, same result.
-
-## Phase 3: Workflow → Action Conversion ✅
-
-**Goal:** Convert raw workflow events into clean, parameterized action definitions using LLM.
-
-Raw recordings are messy (hundreds of low-level events). Use LLM summarization to extract:
-- Action name and description
-- Variable parameters (e.g., email, address, product ID)
-- Simplified step sequence with `{parameter}` placeholders
-
-- [x] Define `ActionDefinition` Pydantic model
-- [x] Define unified `Workflow` model v2 (events + actions list + media refs)
-- [x] Create LLM prompt for workflow → action conversion
-- [x] Implement `convert_workflow_to_action()` function
-- [x] CLI: `uv run browser-agents convert workflows/foo.json`
-- [x] In-place update: action appended to same workflow file
-- [x] Multiple actions per workflow (convert can run multiple times)
-- [x] Action selection by name during replay (`--name` flag)
-
-**Success:** `browser-agents convert workflow.json` adds action definition to the workflow.
-
-### Implementation Notes (Dec 2025)
-
-- Uses `ChatOpenAI` with Ollama `/v1` endpoint (pattern from ai-agents)
-- Model: `gpt-oss:120b` (configurable via `LOCAL_MODEL` env var)
-- Event preprocessing: Collapses keystrokes, removes scroll noise, deduplicates navigations
-- Prompt includes few-shot example for consistency
-- Error handling: Retry with exponential backoff, post-call validation
-
-## Phase 4: Agent Integration
-
-**Goal:** Use action definitions as constrained AI agent tools.
-
-### Browser-Use Pattern (Recommended)
-
-Adopt decorator-based tool registration inspired by [Browser-Use](https://github.com/browser-use/browser-use):
-
-```python
-from browser_agents import tools
-
-@tools.action("checkout.json")
-async def checkout(shipping_address: str) -> ActionResult:
-    """Complete checkout with the given address."""
-    pass  # Playback happens automatically
-```
-
-### Tasks
-
-- [ ] Decorator-based tool interface (`@tools.action()`)
-- [x] Parameter substitution in action playback (via `--param` CLI flag)
-- [ ] `ActionResult` return type for agent decision-making
-- [ ] Domain restrictions for safety (`allowed_domains=['example.com']`)
-- [ ] LangChain compatibility
-- [ ] Langfuse observability
-
-**Success:** An AI agent can invoke an action as a constrained tool.
-
-## Phase 5: Advanced Capture
-
-**Goal:** Richer context for better automation.
-
-- [ ] Network traffic capture
-- [ ] Voice/transcript integration
-- [ ] Video frame analysis
-
-**Success:** Capture API calls alongside clicks for context.
-
-## Phase 6: Vision LLM UI Resilience (Future)
-
-**Goal:** Make actions resilient to UI changes using Vision LLMs.
-
-**NOT part of MVP** - This is future work after core functionality is stable.
-
-### How Skyvern Does It
-
-[Skyvern](https://github.com/Skyvern-AI/skyvern) uses Vision LLMs instead of selectors:
-- Processes screenshots to understand page visually
-- Identifies elements by appearance, not XPath/CSS
-- Self-heals when UI layouts change
-- Recognizes equivalent elements ("Submit" vs "Send Message")
-
-### Approach for browser-agents
-
-- [x] Store screenshots with each recorded event (model support added)
-- [ ] On playback failure, send screenshot to Vision LLM
-- [ ] Vision LLM locates equivalent element visually
-- [ ] Fall back to visual matching when CSS selectors break
-- [ ] Consider: Claude Vision, GPT-4o, or open models
-
-**Success:** Recorded workflow survives a UI redesign without manual updates.
+| Sprint | Status | Description |
+|--------|--------|-------------|
+| Sprint 1 | ✅ Complete | Core Models & Selector Generator |
+| Sprint 2 | ✅ Complete | Multi-Selector Playback |
+| Sprint 3 | ⏳ Pending | Chrome Extension MVP |
+| Sprint 4 | ⏳ Pending | Polish, Conversion & Video |
 
 ---
 
-## Current Focus
+## Sprint 1: Core Models & Selector Generator ✅
 
-**Phase 3 Complete** - Workflow conversion with unified format v2 is working.
+**Status**: Complete
+**Completed**: 2025-01-09
 
-### Workflow Model v2
+### Deliverables
 
-Enhanced workflow format with:
-- `name` and `description` fields for human-readable identification
-- `version` field (currently 2) for schema migrations
-- `actions` list supporting multiple action definitions per workflow
-- Legacy `action` field auto-converts on load
+| Task | Status | Files |
+|------|--------|-------|
+| Create models/ package | ✅ | `src/browser_agents/models/` |
+| SelectorCandidate model | ✅ | `models/selectors.py` |
+| UIEvent, UIEventType models | ✅ | `models/events.py` |
+| RecordingSession, SessionMetadata | ✅ | `models/session.py` |
+| ActionDefinition, workflow models | ✅ | `models/workflow.py` |
+| Selector generator JS | ✅ | `src/browser_agents/js/selector-generator.js` |
+| Rewrite recorder.py | ✅ | `src/browser_agents/recorder.py` |
+| Create storage/ package | ✅ | `src/browser_agents/storage/` |
+| SessionStore class | ✅ | `storage/session_store.py` |
+| Rewrite test_models.py | ✅ | `tests/test_models.py` |
 
-### Recording Improvements
+### New File Structure Created
 
-- Browser close detection via page "close" event
-- Ctrl+C still works as alternative
-- `--name` and `--description` flags for metadata
-- `list` command to view all workflows
-
-### Guided Replay Mode
-
-Interactive error handling when action replay fails:
-```bash
-# Guided mode pauses on errors and offers context-aware options
-uv run browser-agents replay workflows/abc123/workflow.json --action --guided
+```
+src/browser_agents/
+├── models/                        ✅ NEW
+│   ├── __init__.py               # Exports all models
+│   ├── selectors.py              # SelectorCandidate
+│   ├── events.py                 # UIEvent, UIEventType (11 event types)
+│   ├── session.py                # RecordingSession, SessionMetadata, VideoInfo
+│   └── workflow.py               # ActionDefinition, ActionStep, error models
+├── storage/                       ✅ NEW
+│   ├── __init__.py
+│   └── session_store.py          # SessionStore for load/save
+├── js/                            ✅ NEW
+│   └── selector-generator.js     # 400+ lines Codegen-style selectors
+├── recorder.py                    ✅ REWRITTEN (uses new models)
+└── __init__.py                    ✅ UPDATED (exports new models)
 ```
 
-Features:
-- LLM-based error diagnosis via Ollama (falls back to pattern matching)
-- Error classification: `conversion`, `execution`, `verification`
-- Plain-language explanations and suggestions
-- Re-record functionality to fix incorrect steps in-place
-- Context-aware action menu based on error type
-- **Apply fix** option `[x]` - LLM analyzes page HTML to propose fixes with actual selectors
-- **Describe fix** option `[f]` - user describes problem in natural language (also uses page HTML)
-- **Go back** option `[b]` - rewind to fix an earlier step that caused a failure
-- `StepFixSuggestion` model for LLM-generated fix suggestions (delete, modify, keep)
-- `ProposedFix` model with confidence levels (high/medium/low)
-- `StepHistory` dataclass with status tracking (PENDING, OK, WARN, FAIL)
-- `select` action type for `<select>` dropdown elements
-- Look-ahead warning system: checks if next step's target exists after each step
-- Step history display with "[Next step issue]" markers for look-ahead warnings
-- Go-back targets the actual predicted-to-fail step, not the detecting step
-- Rewind waits for page load (`networkidle`) and adds 0.3s pauses between steps
-- Abort handling: partial run notice, save prompt defaults to NOT saving
+### Test Results
 
-**TODO - Future enhancement:**
-- [ ] Vision support: Pass screenshot to vision-capable LLM (GPT-4o, Claude) for more accurate element identification when page HTML is insufficient
-
-### Unified Workflow Format
-
-All data now uses a single `Workflow` JSON format in `workflows/`:
-```bash
-# Record creates workflow with raw events
-uv run browser-agents record https://example.com --name "login-flow"
-
-# Convert appends action definition (can run multiple times)
-uv run browser-agents convert workflows/abc123/workflow.json -d "Login flow"
-
-# List all workflows
-uv run browser-agents list
-
-# Replay supports both modes, with action selection
-uv run browser-agents replay workflows/abc123/workflow.json           # raw events
-uv run browser-agents replay workflows/abc123/workflow.json --action  # action steps
-uv run browser-agents replay workflows/abc123/workflow.json --action --name login_user  # specific action
+```
+tests/test_models.py: 42 passed in 0.06s
 ```
 
-Features:
-- Unified `Workflow` model v2: events + actions list + media refs + success condition
-- Multiple actions per workflow with name-based selection
-- Event preprocessing (collapses keystrokes, removes scroll noise)
-- LLM-based analysis using `gpt-oss:120b` via Ollama
-- Structured output with Pydantic validation
-- Automatic parameter extraction (usernames, passwords, etc.)
-- Parameter substitution with `--param key=value` flags
-- Success condition support via `set-success` command
+### Key Features Implemented
 
-### Test Coverage (44 tests, all passing)
-- Unit tests: Models, CLI, preprocessing, converter (mocked LLM)
-- Integration tests: Playback, recording capture, full roundtrip
-- Slow tests: Real LLM conversion (skipped by default)
+**SelectorCandidate** - 6 strategies with confidence levels:
+| Strategy | Confidence | Example |
+|----------|------------|---------|
+| `role` | high | `role=button[name="Submit"]` |
+| `label` | high | `Email` (form label) |
+| `placeholder` | medium | `Enter your email` |
+| `text` | medium | `Sign In` (button text) |
+| `testid` | high | `submit-btn` |
+| `css` | low | `#submit-button` |
 
-### Next Steps
-1. Phase 4: Agent Integration (decorator-based tool interface)
-2. Consider adding more event types (hover, etc.) as needed
+**UIEventType** - 11 event types:
+- `click`, `double_click`, `right_click`
+- `type`, `clear`, `select_option`
+- `check`, `uncheck`
+- `scroll`, `navigate`, `key_press`
+
+**Selector Generator JS** (400+ lines):
+- Implicit ARIA role detection (button, textbox, link, etc.)
+- Accessible name computation (aria-label, labelledby, text content)
+- Smart CSS generation (avoids brittle auto-generated IDs)
+- Test ID detection (data-testid, data-test-id, data-cy)
+
+---
+
+## Sprint 2: Multi-Selector Playback ✅
+
+**Status**: Complete
+**Completed**: 2025-01-09
+
+### Deliverables
+
+| Task | Status | Files |
+|------|--------|-------|
+| Create playback/ package | ✅ | `src/browser_agents/playback/` |
+| SelectorResolver class | ✅ | `playback/selector_resolver.py` |
+| Session executor | ✅ | `playback/executor.py` |
+| Safe replay mode | ✅ | `playback/safe_replay.py` |
+| Update CLI replay command | ✅ | `src/browser_agents/cli.py` |
+| Selector resolution tests | ✅ | `tests/test_selector_resolver.py` |
+
+### New File Structure Created
+
+```
+src/browser_agents/
+├── playback/                      ✅ NEW
+│   ├── __init__.py               # Exports all playback classes
+│   ├── selector_resolver.py      # Codegen-style resolution (147 lines)
+│   ├── executor.py               # Session replay (235 lines)
+│   └── safe_replay.py            # Method-based network blocking (126 lines)
+```
+
+### New CLI Commands
+
+```bash
+# Replay session with new format
+uv run browser-agents replay-session sessions/sess_abc123
+uv run browser-agents replay-session sessions/sess_abc123 --safe
+uv run browser-agents replay-session sessions/sess_abc123 --safe --mode warn
+
+# Import session from extension export
+uv run browser-agents import-session ~/Downloads/workflow.json
+
+# List all sessions
+uv run browser-agents list-sessions
+```
+
+### Key Features Implemented
+
+**SelectorResolver** - Priority-based resolution:
+```python
+# Priority: role → label → placeholder → text → testid → css
+async def resolve(self, event: UIEvent) -> Locator | None:
+    for candidate in event.selectors:
+        locator = self._to_locator(candidate)
+        if await locator.count() == 1:
+            return locator
+    return None  # Fall back to coordinates
+```
+
+**SessionExecutor** - Handles all 11 event types with coordinate fallback
+
+**Safe Replay Mode** - Block state-changing requests:
+| Mode | Behavior |
+|------|----------|
+| `LIVE` | No interception |
+| `WARN` | Log but allow POST/PUT/DELETE |
+| `BLOCK` | Abort state-changing requests |
+| `MOCK` | Return fake success responses |
+
+---
+
+## Sprint 3: Chrome Extension MVP ⏳
+
+**Status**: Pending
+**Target**: Week 2-3
+
+### Tasks
+
+| Task | Status | Files |
+|------|--------|-------|
+| Extension manifest | ⏳ | `browser-recorder-extension/manifest.json` |
+| Background script | ⏳ | `browser-recorder-extension/background.js` |
+| Content script | ⏳ | `browser-recorder-extension/content.js` |
+| Popup UI | ⏳ | `browser-recorder-extension/popup.html` |
+| CLI import command | ⏳ | `src/browser_agents/cli.py` |
+
+### Target File Structure
+
+```
+browser-recorder-extension/        ⏳ NEW
+├── manifest.json                 # MV3, all_frames: true
+├── background.js                 # Service worker, session state
+├── content.js                    # Event capture (reuses selector-generator.js)
+├── popup.html                    # Start/stop UI
+├── popup.js                      # UI logic
+└── icons/
+```
+
+### Key Advantage Over Playwright
+- `all_frames: true` enables iframe capture
+- User's existing Chrome session (logged in, cookies)
+- No browser launch overhead
+
+---
+
+## Sprint 4: Polish, Conversion & Video ⏳
+
+**Status**: Pending
+**Target**: Week 3-4
+
+### Tasks
+
+| Task | Status | Files |
+|------|--------|-------|
+| Update LLM conversion | ⏳ | `src/browser_agents/converter.py` |
+| Video capture | ⏳ | `browser-recorder-extension/video-capture.js` |
+| Update conversion prompt | ⏳ | `src/browser_agents/prompts/convert_session.yaml` |
+| Error handling | ⏳ | Various |
+| Documentation | ⏳ | `README.md` |
+
+### Key Features
+- LLM converts UIEvents → ActionDefinition
+- Video via chrome.tabCapture API
+- Timestamp sync via `relative_time_ms`
+
+---
+
+## Storage Structure
+
+```
+sessions/                          # NEW storage location
+└── {session_id}/
+    ├── session.json              # RecordingSession (metadata + events)
+    ├── media/
+    │   └── recording.webm        # Video (optional, Sprint 4)
+    └── processed/
+        └── workflow.json         # LLM-derived ActionDefinition
+```
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         CAPTURE LAYER                                        │
+│  Chrome Extension (primary) OR Playwright (dev/testing)                      │
+│  Produces: UIEvent with Codegen-style selectors                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      SESSION STORAGE                                         │
+│  sessions/{id}/session.json + media/recording.webm (optional)               │
+│  Raw events stored, LLM processing generates workflow.json                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      PROCESSED OUTPUT                                        │
+│  sessions/{id}/processed/workflow.json (ActionDefinition)                   │
+│  Generated by LLM from raw events, can be re-generated                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Testing Strategy
+
+```bash
+# Unit tests (fast)
+uv run pytest tests/test_models.py -v              # 42 tests ✅
+
+# Selector resolution tests (Sprint 2)
+uv run pytest tests/test_selector_resolver.py -v   # ✅
+
+# Integration tests (browser)
+uv run pytest tests/test_browser.py -v --slow
+
+# All tests
+uv run pytest -v
+```
+
+---
+
+## Success Criteria
+
+| Criterion | Sprint | Status |
+|-----------|--------|--------|
+| Clean model architecture | 1 | ✅ |
+| Codegen-style selectors | 1 | ✅ |
+| Multi-selector capture | 1 | ✅ |
+| Resilient playback | 2 | ✅ |
+| Selector fallback chain | 2 | ✅ |
+| Coordinate fallback | 2 | ✅ |
+| Safe replay mode | 2 | ✅ |
+| Chrome extension capture | 3 | ⏳ |
+| iframe support | 3 | ⏳ |
+| Video recording | 4 | ⏳ |
+| LLM conversion | 4 | ⏳ |
+
+---
+
+## What Gets Removed (Clean Refactor)
+
+| Old Code | Replacement | Status |
+|----------|-------------|--------|
+| `RecordedEvent` model | `UIEvent` | ✅ |
+| `Workflow` model | `RecordingSession` | ✅ |
+| `workflows/` directory | `sessions/` | ✅ |
+| Single selector string | `SelectorCandidate[]` | ✅ |
+| Screenshot capture | Video recording | ⏳ Sprint 4 |

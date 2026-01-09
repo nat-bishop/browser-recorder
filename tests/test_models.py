@@ -10,143 +10,373 @@ import pytest
 from pydantic import ValidationError
 
 from browser_agents.models import (
-    RecordedEvent,
-    Recording,
+    ActionDefinition,
+    ActionParameter,
+    ActionStep,
+    ErrorDiagnosis,
+    MediaRefs,
+    RecordingSession,
+    SelectorCandidate,
+    SessionMetadata,
+    StepAction,
+    SuccessCondition,
+    UIEvent,
+    UIEventType,
 )
 
 
-class TestRecordedEvent:
-    """Tests for RecordedEvent model."""
+class TestSelectorCandidate:
+    """Tests for SelectorCandidate model."""
 
-    def test_click_event_with_selector(self) -> None:
-        """Click event with CSS selector is valid."""
-        event = RecordedEvent(
-            timestamp=1.0,
-            event_type="click",
-            selector="#submit-button",
+    def test_role_selector(self) -> None:
+        """Role selector with name is valid."""
+        selector = SelectorCandidate(
+            strategy="role",
+            value='role=button[name="Submit"]',
+            confidence="high",
+            role="button",
+            name="Submit",
+        )
+        assert selector.strategy == "role"
+        assert selector.role == "button"
+        assert selector.name == "Submit"
+        assert selector.confidence == "high"
+
+    def test_label_selector(self) -> None:
+        """Label selector is valid."""
+        selector = SelectorCandidate(
+            strategy="label",
+            value="Email",
+            confidence="high",
+        )
+        assert selector.strategy == "label"
+        assert selector.value == "Email"
+
+    def test_css_selector(self) -> None:
+        """CSS selector (fallback) is valid."""
+        selector = SelectorCandidate(
+            strategy="css",
+            value="#submit-btn",
+            confidence="low",
+        )
+        assert selector.strategy == "css"
+        assert selector.confidence == "low"
+
+    @pytest.mark.parametrize("strategy", ["role", "label", "placeholder", "text", "testid", "css"])
+    def test_all_valid_strategies(self, strategy: str) -> None:
+        """All defined selector strategies are accepted."""
+        selector = SelectorCandidate(
+            strategy=strategy,  # type: ignore[arg-type]
+            value="test",
+            confidence="medium",
+        )
+        assert selector.strategy == strategy
+
+    def test_invalid_strategy_rejected(self) -> None:
+        """Invalid strategy raises ValidationError."""
+        with pytest.raises(ValidationError) as exc_info:
+            SelectorCandidate(
+                strategy="invalid",  # type: ignore[arg-type]
+                value="test",
+                confidence="medium",
+            )
+        assert "strategy" in str(exc_info.value)
+
+    def test_serialization_roundtrip(self) -> None:
+        """SelectorCandidate can be serialized to JSON and back."""
+        original = SelectorCandidate(
+            strategy="role",
+            value='role=button[name="Submit"]',
+            confidence="high",
+            role="button",
+            name="Submit",
+        )
+        json_str = original.model_dump_json()
+        restored = SelectorCandidate.model_validate_json(json_str)
+        assert restored == original
+
+
+class TestUIEventType:
+    """Tests for UIEventType enum."""
+
+    def test_all_event_types_exist(self) -> None:
+        """All expected event types are defined."""
+        assert UIEventType.CLICK == "click"
+        assert UIEventType.DOUBLE_CLICK == "double_click"
+        assert UIEventType.RIGHT_CLICK == "right_click"
+        assert UIEventType.TYPE == "type"
+        assert UIEventType.CLEAR == "clear"
+        assert UIEventType.SELECT_OPTION == "select_option"
+        assert UIEventType.CHECK == "check"
+        assert UIEventType.UNCHECK == "uncheck"
+        assert UIEventType.SCROLL == "scroll"
+        assert UIEventType.NAVIGATE == "navigate"
+        assert UIEventType.KEY_PRESS == "key_press"
+
+    def test_event_type_is_string_enum(self) -> None:
+        """UIEventType values can be used as strings."""
+        assert UIEventType.CLICK.value == "click"
+
+
+class TestUIEvent:
+    """Tests for UIEvent model."""
+
+    def test_click_event_with_selectors(self) -> None:
+        """Click event with multiple selectors is valid."""
+        event = UIEvent(
+            id="evt_001",
+            timestamp=datetime.now(UTC),
+            relative_time_ms=1000,
+            event_type=UIEventType.CLICK,
+            url="https://example.com",
+            selectors=[
+                SelectorCandidate(
+                    strategy="role", value="button", confidence="high", role="button", name="Submit"
+                ),
+                SelectorCandidate(strategy="testid", value="submit-btn", confidence="high"),
+                SelectorCandidate(strategy="css", value="#submit", confidence="low"),
+            ],
+            element_type="button",
+            element_text="Submit",
             x=100,
             y=200,
         )
-        assert event.event_type == "click"
-        assert event.selector == "#submit-button"
+        assert event.event_type == UIEventType.CLICK
+        assert len(event.selectors) == 3
+        assert event.selectors[0].strategy == "role"
         assert event.x == 100
         assert event.y == 200
 
-    def test_click_event_coordinates_only(self) -> None:
-        """Click event with only coordinates (no selector) is valid."""
-        event = RecordedEvent(
-            timestamp=1.0,
-            event_type="click",
-            x=50,
-            y=75,
-        )
-        assert event.selector is None
-        assert event.x == 50
-
     def test_type_event(self) -> None:
         """Type event with value is valid."""
-        event = RecordedEvent(
-            timestamp=1.0,
-            event_type="type",
-            value="hello world",
+        event = UIEvent(
+            id="evt_002",
+            timestamp=datetime.now(UTC),
+            relative_time_ms=2000,
+            event_type=UIEventType.TYPE,
+            url="https://example.com",
+            selectors=[SelectorCandidate(strategy="label", value="Email", confidence="high")],
+            element_type="input",
+            input_type="email",
+            placeholder="Enter your email",
+            value="test@example.com",
         )
-        assert event.event_type == "type"
-        assert event.value == "hello world"
+        assert event.event_type == UIEventType.TYPE
+        assert event.value == "test@example.com"
+        assert event.input_type == "email"
 
     def test_navigate_event(self) -> None:
-        """Navigate event with URL is valid."""
-        event = RecordedEvent(
-            timestamp=1.0,
-            event_type="navigate",
+        """Navigate event is valid."""
+        event = UIEvent(
+            id="evt_003",
+            timestamp=datetime.now(UTC),
+            relative_time_ms=0,
+            event_type=UIEventType.NAVIGATE,
             url="https://example.com/page",
+            selectors=[],
         )
-        assert event.event_type == "navigate"
+        assert event.event_type == UIEventType.NAVIGATE
         assert event.url == "https://example.com/page"
 
     def test_scroll_event(self) -> None:
         """Scroll event with coordinates is valid."""
-        event = RecordedEvent(
-            timestamp=1.0,
-            event_type="scroll",
+        event = UIEvent(
+            id="evt_004",
+            timestamp=datetime.now(UTC),
+            relative_time_ms=3000,
+            event_type=UIEventType.SCROLL,
+            url="https://example.com",
+            selectors=[],
             scroll_x=0,
             scroll_y=500,
         )
         assert event.scroll_y == 500
 
-    def test_wait_event(self) -> None:
-        """Wait event (minimal fields) is valid."""
-        event = RecordedEvent(
-            timestamp=1.0,
-            event_type="wait",
+    def test_key_press_event(self) -> None:
+        """Key press event is valid."""
+        event = UIEvent(
+            id="evt_005",
+            timestamp=datetime.now(UTC),
+            relative_time_ms=4000,
+            event_type=UIEventType.KEY_PRESS,
+            url="https://example.com",
+            selectors=[],
+            key="Enter",
         )
-        assert event.event_type == "wait"
+        assert event.event_type == UIEventType.KEY_PRESS
+        assert event.key == "Enter"
 
-    @pytest.mark.parametrize("event_type", ["click", "type", "navigate", "scroll", "wait"])
-    def test_all_valid_event_types(self, event_type: str) -> None:
-        """All defined event types are accepted."""
-        event = RecordedEvent(timestamp=1.0, event_type=event_type)
-        assert event.event_type == event_type
+    def test_iframe_event(self) -> None:
+        """Event in iframe captures frame context."""
+        event = UIEvent(
+            id="evt_006",
+            timestamp=datetime.now(UTC),
+            relative_time_ms=5000,
+            event_type=UIEventType.CLICK,
+            url="https://example.com",
+            selectors=[],
+            frame_type="iframe",
+            frame_src="https://iframe.example.com/content",
+        )
+        assert event.frame_type == "iframe"
+        assert event.frame_src == "https://iframe.example.com/content"
 
-    def test_invalid_event_type_rejected(self) -> None:
-        """Invalid event types raise ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            RecordedEvent(timestamp=1.0, event_type="invalid_type")
-        assert "event_type" in str(exc_info.value)
+    def test_default_frame_type_is_main(self) -> None:
+        """Default frame_type is main."""
+        event = UIEvent(
+            id="evt_007",
+            timestamp=datetime.now(UTC),
+            relative_time_ms=0,
+            event_type=UIEventType.CLICK,
+            url="https://example.com",
+            selectors=[],
+        )
+        assert event.frame_type == "main"
 
-    def test_missing_timestamp_rejected(self) -> None:
-        """Timestamp is required."""
+    def test_missing_required_fields_rejected(self) -> None:
+        """Missing required fields raise ValidationError."""
         with pytest.raises(ValidationError):
-            RecordedEvent(event_type="click")  # type: ignore[call-arg]
+            UIEvent(  # type: ignore[call-arg]
+                event_type=UIEventType.CLICK,
+            )
 
     def test_serialization_roundtrip(self) -> None:
-        """Event can be serialized to JSON and back."""
-        original = RecordedEvent(
-            timestamp=1234567890.123,
-            event_type="click",
-            selector="button.primary",
+        """UIEvent can be serialized to JSON and back."""
+        original = UIEvent(
+            id="evt_001",
+            timestamp=datetime.now(UTC),
+            relative_time_ms=1000,
+            event_type=UIEventType.CLICK,
+            url="https://example.com",
+            selectors=[
+                SelectorCandidate(
+                    strategy="role", value="button", confidence="high", role="button", name="Submit"
+                ),
+            ],
+            element_type="button",
             x=100,
             y=200,
         )
         json_str = original.model_dump_json()
-        restored = RecordedEvent.model_validate_json(json_str)
-        assert restored == original
+        restored = UIEvent.model_validate_json(json_str)
+        assert restored.id == original.id
+        assert restored.event_type == original.event_type
+        assert len(restored.selectors) == 1
 
 
-class TestRecording:
-    """Tests for Recording model."""
+class TestSessionMetadata:
+    """Tests for SessionMetadata model."""
 
-    def test_recording_with_events(self) -> None:
-        """Recording with multiple events is valid."""
-        recording = Recording(
-            session_id="abc123",
-            start_url="https://example.com",
+    def test_minimal_metadata(self) -> None:
+        """Minimal metadata is valid."""
+        metadata = SessionMetadata(
+            id="sess_001",
             started_at=datetime.now(UTC),
+            source_url="https://example.com",
+        )
+        assert metadata.id == "sess_001"
+        assert metadata.version == 1
+        assert metadata.ended_at is None
+
+    def test_full_metadata(self) -> None:
+        """Full metadata with all fields is valid."""
+        metadata = SessionMetadata(
+            id="sess_002",
+            version=1,
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            duration_ms=30000,
+            source_url="https://example.com",
+            browser_name="Chrome",
+            browser_version="120.0.0",
+            viewport_width=1920,
+            viewport_height=1080,
+            name="Login test",
+            description="Test the login flow",
+        )
+        assert metadata.browser_name == "Chrome"
+        assert metadata.viewport_width == 1920
+
+
+class TestRecordingSession:
+    """Tests for RecordingSession model."""
+
+    def test_session_with_events(self) -> None:
+        """Session with events is valid."""
+        session = RecordingSession(
+            metadata=SessionMetadata(
+                id="sess_001",
+                started_at=datetime.now(UTC),
+                source_url="https://example.com",
+            ),
             events=[
-                RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
-                RecordedEvent(timestamp=2.0, event_type="click", selector="#btn"),
+                UIEvent(
+                    id="evt_001",
+                    timestamp=datetime.now(UTC),
+                    relative_time_ms=0,
+                    event_type=UIEventType.NAVIGATE,
+                    url="https://example.com",
+                    selectors=[],
+                ),
+                UIEvent(
+                    id="evt_002",
+                    timestamp=datetime.now(UTC),
+                    relative_time_ms=1000,
+                    event_type=UIEventType.CLICK,
+                    url="https://example.com",
+                    selectors=[SelectorCandidate(strategy="css", value="#btn", confidence="low")],
+                ),
             ],
         )
-        assert recording.session_id == "abc123"
-        assert len(recording.events) == 2
+        assert session.metadata.id == "sess_001"
+        assert len(session.events) == 2
 
-    def test_recording_empty_events(self) -> None:
-        """Recording with no events is valid."""
-        recording = Recording(
-            session_id="empty",
-            start_url="https://example.com",
-            started_at=datetime.now(UTC),
+    def test_session_empty_events(self) -> None:
+        """Session with no events is valid."""
+        session = RecordingSession(
+            metadata=SessionMetadata(
+                id="sess_empty",
+                started_at=datetime.now(UTC),
+                source_url="https://example.com",
+            ),
             events=[],
         )
-        assert len(recording.events) == 0
+        assert len(session.events) == 0
 
-    def test_recording_default_events(self) -> None:
+    def test_session_default_events(self) -> None:
         """Events list defaults to empty."""
-        recording = Recording(
-            session_id="test",
-            start_url="https://example.com",
-            started_at=datetime.now(UTC),
+        session = RecordingSession(
+            metadata=SessionMetadata(
+                id="sess_default",
+                started_at=datetime.now(UTC),
+                source_url="https://example.com",
+            ),
         )
-        assert recording.events == []
+        assert session.events == []
+
+    def test_serialization_roundtrip(self) -> None:
+        """RecordingSession can be serialized to JSON and back."""
+        original = RecordingSession(
+            metadata=SessionMetadata(
+                id="sess_roundtrip",
+                started_at=datetime.now(UTC),
+                source_url="https://example.com",
+            ),
+            events=[
+                UIEvent(
+                    id="evt_001",
+                    timestamp=datetime.now(UTC),
+                    relative_time_ms=0,
+                    event_type=UIEventType.NAVIGATE,
+                    url="https://example.com",
+                    selectors=[],
+                ),
+            ],
+        )
+        json_str = original.model_dump_json()
+        restored = RecordingSession.model_validate_json(json_str)
+        assert restored.metadata.id == original.metadata.id
+        assert len(restored.events) == 1
 
 
 class TestStepAction:
@@ -154,8 +384,6 @@ class TestStepAction:
 
     def test_all_action_types_exist(self) -> None:
         """All expected action types are defined."""
-        from browser_agents.models import StepAction
-
         assert StepAction.navigate == "navigate"
         assert StepAction.click == "click"
         assert StepAction.type == "type"
@@ -165,9 +393,6 @@ class TestStepAction:
 
     def test_step_action_is_string_enum(self) -> None:
         """StepAction values can be used as strings."""
-        from browser_agents.models import StepAction
-
-        assert str(StepAction.click) == "StepAction.click"
         assert StepAction.click.value == "click"
 
 
@@ -176,8 +401,6 @@ class TestActionStep:
 
     def test_action_step_with_selector(self) -> None:
         """ActionStep with target selector is valid."""
-        from browser_agents.models import ActionStep, StepAction
-
         step = ActionStep(
             action=StepAction.click,
             target="#submit-btn",
@@ -188,8 +411,6 @@ class TestActionStep:
 
     def test_action_step_with_value_placeholder(self) -> None:
         """ActionStep with parameter placeholder is valid."""
-        from browser_agents.models import ActionStep, StepAction
-
         step = ActionStep(
             action=StepAction.type,
             target="#email",
@@ -200,8 +421,6 @@ class TestActionStep:
 
     def test_action_step_with_fallback_coords(self) -> None:
         """ActionStep with fallback coordinates is valid."""
-        from browser_agents.models import ActionStep, StepAction
-
         step = ActionStep(
             action=StepAction.click,
             target="#btn",
@@ -214,8 +433,6 @@ class TestActionStep:
 
     def test_action_step_serialization_roundtrip(self) -> None:
         """ActionStep can be serialized to JSON and back."""
-        from browser_agents.models import ActionStep, StepAction
-
         original = ActionStep(
             action=StepAction.click,
             target="#btn",
@@ -228,136 +445,54 @@ class TestActionStep:
         assert restored.fallback_coords == [50, 75]
 
 
-class TestWorkflow:
-    """Tests for Workflow model."""
+class TestActionDefinition:
+    """Tests for ActionDefinition model."""
 
-    def test_workflow_with_events(self) -> None:
-        """Workflow with events is valid."""
-        from browser_agents.models import RecordedEvent, Workflow
-
-        workflow = Workflow(
-            id="abc123",
-            source_url="https://example.com",
-            created_at=datetime.now(UTC),
-            events=[
-                RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
-                RecordedEvent(timestamp=2.0, event_type="click", selector="#btn"),
-            ],
-        )
-        assert workflow.id == "abc123"
-        assert len(workflow.events) == 2
-        assert workflow.actions == []
-        assert workflow.media is None
-
-    def test_workflow_with_action(self) -> None:
-        """Workflow with action definition is valid."""
-        from browser_agents.models import (
-            ActionDefinition,
-            ActionParameter,
-            ActionStep,
-            RecordedEvent,
-            StepAction,
-            Workflow,
-        )
-
+    def test_action_definition(self) -> None:
+        """ActionDefinition with steps is valid."""
         action = ActionDefinition(
             name="login",
             description="Log into the site",
             parameters=[
-                ActionParameter(name="email", description="Email", example="test@example.com")
+                ActionParameter(name="email", description="Email", example="test@example.com"),
+                ActionParameter(
+                    name="password", description="Password", example="secret123", is_sensitive=True
+                ),
             ],
-            steps=[ActionStep(action=StepAction.click, target="#btn", description="Click")],
+            steps=[
+                ActionStep(
+                    action=StepAction.type,
+                    target="#email",
+                    value="{email}",
+                    description="Enter email",
+                ),
+                ActionStep(
+                    action=StepAction.type,
+                    target="#password",
+                    value="{password}",
+                    description="Enter password",
+                ),
+                ActionStep(action=StepAction.click, target="#login-btn", description="Click login"),
+            ],
             domains=["example.com"],
         )
+        assert action.name == "login"
+        assert len(action.parameters) == 2
+        assert action.parameters[1].is_sensitive is True
+        assert len(action.steps) == 3
 
-        workflow = Workflow(
-            id="test123",
-            source_url="https://example.com",
-            created_at=datetime.now(UTC),
-            events=[RecordedEvent(timestamp=1.0, event_type="click", selector="#btn")],
-            actions=[action],
-        )
-        assert len(workflow.actions) == 1
-        assert workflow.actions[0].name == "login"
-
-    def test_workflow_with_legacy_action_field(self) -> None:
-        """Workflow accepts legacy 'action' field and converts to 'actions'."""
-        from browser_agents.models import (
-            ActionDefinition,
-            ActionStep,
-            RecordedEvent,
-            StepAction,
-            Workflow,
-        )
-
-        action = ActionDefinition(
-            name="legacy_action",
-            description="Test legacy support",
+    def test_action_definition_serialization_roundtrip(self) -> None:
+        """ActionDefinition can be serialized to JSON and back."""
+        original = ActionDefinition(
+            name="test",
+            description="Test action",
             parameters=[],
             steps=[ActionStep(action=StepAction.click, target="#btn", description="Click")],
             domains=["example.com"],
         )
-
-        # Pass singular 'action' field (legacy)
-        workflow = Workflow(
-            id="legacy123",
-            source_url="https://example.com",
-            created_at=datetime.now(UTC),
-            events=[RecordedEvent(timestamp=1.0, event_type="click", selector="#btn")],
-            action=action,
-        )
-        # Should be converted to 'actions' list
-        assert len(workflow.actions) == 1
-        assert workflow.actions[0].name == "legacy_action"
-
-    def test_workflow_with_media_refs(self) -> None:
-        """Workflow with media references is valid."""
-        from browser_agents.models import MediaRefs, Workflow
-
-        media = MediaRefs(video="recording.webm", audio="audio.mp3")
-
-        workflow = Workflow(
-            id="media123",
-            source_url="https://example.com",
-            created_at=datetime.now(UTC),
-            events=[],
-            media=media,
-        )
-        assert workflow.media is not None
-        assert workflow.media.video == "recording.webm"
-
-    def test_workflow_serialization_roundtrip(self) -> None:
-        """Workflow can be serialized to JSON and back."""
-        from browser_agents.models import RecordedEvent, Workflow
-
-        original = Workflow(
-            id="roundtrip",
-            source_url="https://example.com",
-            created_at=datetime.now(UTC),
-            events=[
-                RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
-            ],
-        )
         json_str = original.model_dump_json()
-        restored = Workflow.model_validate_json(json_str)
-        assert restored.id == original.id
-        assert restored.source_url == original.source_url
-        assert len(restored.events) == 1
-
-    def test_workflow_version_defaults_to_2(self) -> None:
-        """Workflow version defaults to 2 (with name, description, actions list)."""
-        from browser_agents.models import Workflow
-
-        workflow = Workflow(
-            id="test",
-            source_url="https://example.com",
-            created_at=datetime.now(UTC),
-            events=[],
-        )
-        assert workflow.version == 2
-        assert workflow.name is None
-        assert workflow.description is None
-        assert workflow.actions == []
+        restored = ActionDefinition.model_validate_json(json_str)
+        assert restored.name == original.name
 
 
 class TestErrorDiagnosis:
@@ -365,8 +500,6 @@ class TestErrorDiagnosis:
 
     def test_error_diagnosis_conversion_type(self) -> None:
         """ErrorDiagnosis with conversion error type is valid."""
-        from browser_agents.models import ErrorDiagnosis
-
         diagnosis = ErrorDiagnosis(
             error_type="conversion",
             explanation="Tried to type into a dropdown element",
@@ -377,8 +510,6 @@ class TestErrorDiagnosis:
 
     def test_error_diagnosis_execution_type(self) -> None:
         """ErrorDiagnosis with execution error type is valid."""
-        from browser_agents.models import ErrorDiagnosis
-
         diagnosis = ErrorDiagnosis(
             error_type="execution",
             explanation="Element not found",
@@ -387,22 +518,8 @@ class TestErrorDiagnosis:
         )
         assert diagnosis.error_type == "execution"
 
-    def test_error_diagnosis_verification_type(self) -> None:
-        """ErrorDiagnosis with verification error type is valid."""
-        from browser_agents.models import ErrorDiagnosis
-
-        diagnosis = ErrorDiagnosis(
-            error_type="verification",
-            explanation="Form validation failed",
-            suggestion="Check the input values",
-            likely_cause="Invalid data entered",
-        )
-        assert diagnosis.error_type == "verification"
-
     def test_error_diagnosis_invalid_type_rejected(self) -> None:
         """ErrorDiagnosis rejects invalid error types."""
-        from browser_agents.models import ErrorDiagnosis
-
         with pytest.raises(ValidationError):
             ErrorDiagnosis(
                 error_type="unknown",  # type: ignore[arg-type]
@@ -411,17 +528,36 @@ class TestErrorDiagnosis:
                 likely_cause="Test",
             )
 
-    def test_error_diagnosis_serialization_roundtrip(self) -> None:
-        """ErrorDiagnosis can be serialized to JSON and back."""
-        from browser_agents.models import ErrorDiagnosis
 
-        original = ErrorDiagnosis(
-            error_type="execution",
-            explanation="Element not found on page",
-            suggestion="Check if selector changed since recording",
-            likely_cause="Selector may have changed due to dynamic content",
+class TestMediaRefs:
+    """Tests for MediaRefs model."""
+
+    def test_media_refs_video_only(self) -> None:
+        """MediaRefs with only video is valid."""
+        media = MediaRefs(video="recording.webm")
+        assert media.video == "recording.webm"
+        assert media.audio is None
+
+    def test_media_refs_full(self) -> None:
+        """MediaRefs with all fields is valid."""
+        media = MediaRefs(
+            video="recording.webm",
+            audio="audio.mp3",
+            transcript=[{"time": 0, "text": "Hello"}],
         )
-        json_str = original.model_dump_json()
-        restored = ErrorDiagnosis.model_validate_json(json_str)
-        assert restored == original
-        assert restored.error_type == "execution"
+        assert media.video == "recording.webm"
+        assert media.audio == "audio.mp3"
+        assert len(media.transcript) == 1
+
+
+class TestSuccessCondition:
+    """Tests for SuccessCondition model."""
+
+    def test_success_condition(self) -> None:
+        """SuccessCondition is valid."""
+        condition = SuccessCondition(
+            description="Order confirmation page shown",
+            url_pattern=r".*\/confirmation$",
+        )
+        assert "confirmation" in condition.description
+        assert condition.url_pattern is not None

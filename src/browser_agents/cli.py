@@ -363,5 +363,247 @@ def list_workflows(
             typer.echo(f"  [ERROR] {wf_path}: {e}", err=True)
 
 
+@app.command(name="replay-session")
+def replay_session(
+    session_path: Path = typer.Argument(..., help="Path to session.json or session directory"),
+    delay: int = typer.Option(100, "--delay", "-d", help="Delay between events in milliseconds"),
+    safe: bool = typer.Option(
+        False, "--safe", "-s", help="Enable safe replay mode (block state-changing requests)"
+    ),
+    safe_mode: str = typer.Option(
+        "block",
+        "--mode",
+        "-m",
+        help="Safe mode type: block (abort requests), warn (log but allow), mock (fake success)",
+    ),
+) -> None:
+    """Replay a recording session using Codegen-style selectors.
+
+    Uses the new session format with multi-selector resolution.
+    Tries selectors in priority order (role > label > placeholder > text > testid > css)
+    and falls back to coordinates when all selectors fail.
+
+    Examples:
+        browser-agents replay-session sessions/sess_abc123
+        browser-agents replay-session sessions/sess_abc123/session.json
+        browser-agents replay-session sessions/sess_abc123 --safe
+        browser-agents replay-session sessions/sess_abc123 --safe --mode warn
+    """
+    from browser_agents.playback import (
+        PlaybackError,
+        SafeReplayController,
+        SafeReplayMode,
+        SessionExecutor,
+    )
+    from browser_agents.storage import SessionStore
+
+    # Handle both directory and file paths
+    if session_path.is_dir():
+        session_file = session_path / "session.json"
+    else:
+        session_file = session_path
+
+    if not session_file.exists():
+        typer.echo(f"Session not found: {session_file}", err=True)
+        raise typer.Exit(1)
+
+    # Load session
+    store = SessionStore(session_file.parent.parent)
+    session_id = session_file.parent.name
+    try:
+        session = store.load_session(session_id)
+    except Exception as e:
+        typer.echo(f"Failed to load session: {e}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Loaded session: {session.metadata.id}")
+    typer.echo(f"Events: {len(session.events)}")
+    typer.echo(f"Source: {session.metadata.source_url}")
+
+    # Parse safe mode
+    mode_map = {
+        "block": SafeReplayMode.BLOCK,
+        "warn": SafeReplayMode.WARN,
+        "mock": SafeReplayMode.MOCK,
+        "live": SafeReplayMode.LIVE,
+    }
+    replay_mode = (
+        mode_map.get(safe_mode.lower(), SafeReplayMode.BLOCK) if safe else SafeReplayMode.LIVE
+    )
+
+    if safe:
+        typer.echo(f"Safe mode: {replay_mode.value}")
+
+    # Progress callback
+    def on_event(event: "UIEvent", index: int, total: int) -> None:
+        detail = ""
+        if event.selectors:
+            detail = event.selectors[0].value[:40]
+        elif event.value:
+            detail = event.value[:40]
+        elif event.url:
+            detail = event.url[:40]
+        typer.echo(f"  [{index + 1}/{total}] {event.event_type.value}: {detail}")
+
+    # Need to import here to avoid circular import issues
+    from browser_agents.models import UIEvent
+
+    async def run_replay() -> tuple[int, int]:
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=False)
+            context = await browser.new_context()
+            page = await context.new_page()
+
+            # Set up safe replay if enabled
+            safe_controller = None
+            if replay_mode != SafeReplayMode.LIVE:
+                safe_controller = SafeReplayController(page, replay_mode)
+                await safe_controller.setup()
+
+            # Navigate to start URL
+            await page.goto(session.metadata.source_url)
+
+            # Create executor
+            executor = SessionExecutor(page, delay_ms=delay, on_event=on_event)
+
+            # Replay
+            success = 0
+            failed = 0
+            for i, event in enumerate(session.events):
+                try:
+                    on_event(event, i, len(session.events))
+                    await executor.replay_event(event)
+                    success += 1
+                except PlaybackError as e:
+                    typer.echo(f"    [FAILED] {e}", err=True)
+                    failed += 1
+                except Exception as e:
+                    typer.echo(f"    [ERROR] {e}", err=True)
+                    failed += 1
+
+            # Print safe replay report
+            if safe_controller:
+                report = safe_controller.get_report()
+                if report["blocked_count"] > 0:
+                    typer.echo(f"\nSafe replay blocked {report['blocked_count']} requests")
+
+            await browser.close()
+            return success, failed
+
+    success, failed = asyncio.run(run_replay())
+    total = success + failed
+    typer.echo(f"\nReplay complete: {success}/{total} events succeeded")
+    if failed > 0:
+        raise typer.Exit(1)
+
+
+@app.command(name="import-session")
+def import_session(
+    source_file: Path = typer.Argument(
+        ..., help="Path to session.json from Chrome extension export"
+    ),
+    output_dir: Path = typer.Option(Path("sessions"), "--output", "-o", help="Output directory"),
+) -> None:
+    """Import a recording session from Chrome extension export.
+
+    Validates the session JSON and copies it to the sessions directory.
+
+    Examples:
+        browser-agents import-session ~/Downloads/workflow-abc123.json
+        browser-agents import-session export.json -o ./my-sessions
+    """
+    from browser_agents.models import RecordingSession
+
+    if not source_file.exists():
+        typer.echo(f"Source file not found: {source_file}", err=True)
+        raise typer.Exit(1)
+
+    # Load and validate
+    try:
+        content = source_file.read_text(encoding="utf-8")
+        session = RecordingSession.model_validate_json(content)
+    except Exception as e:
+        typer.echo(f"Invalid session file: {e}", err=True)
+        raise typer.Exit(1)
+
+    # Create session directory
+    session_dir = output_dir / session.metadata.id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create media directory
+    (session_dir / "media").mkdir(exist_ok=True)
+
+    # Copy video if present and exists
+    if session.metadata.video:
+        video_src = source_file.parent / session.metadata.video.path
+        if video_src.exists():
+            import shutil
+
+            video_dst = session_dir / "media" / "recording.webm"
+            shutil.copy(video_src, video_dst)
+            session.metadata.video.path = "media/recording.webm"
+
+    # Save session
+    output_file = session_dir / "session.json"
+    output_file.write_text(session.model_dump_json(indent=2), encoding="utf-8")
+
+    typer.echo(f"Imported session to: {session_dir}")
+    typer.echo(f"  ID: {session.metadata.id}")
+    typer.echo(f"  Events: {len(session.events)}")
+    typer.echo(f"  Source: {session.metadata.source_url}")
+    if session.metadata.video:
+        typer.echo(f"  Video: {session.metadata.video.path}")
+
+
+@app.command(name="list-sessions")
+def list_sessions(
+    sessions_dir: Path = typer.Argument(
+        Path("sessions"), help="Directory containing session folders"
+    ),
+) -> None:
+    """List all recording sessions.
+
+    Scans the sessions directory for session.json files and displays
+    a summary of each session.
+
+    Examples:
+        browser-agents list-sessions
+        browser-agents list-sessions ./my-sessions
+    """
+    from browser_agents.storage import SessionStore
+
+    if not sessions_dir.exists():
+        typer.echo(f"Directory not found: {sessions_dir}", err=True)
+        raise typer.Exit(1)
+
+    store = SessionStore(sessions_dir)
+    session_ids = store.list_sessions()
+
+    if not session_ids:
+        typer.echo(f"No sessions found in: {sessions_dir}")
+        return
+
+    typer.echo(f"Found {len(session_ids)} session(s):\n")
+
+    for session_id in session_ids:
+        try:
+            session = store.load_session(session_id)
+            name = session.metadata.name or session.metadata.id
+            url = session.metadata.source_url
+
+            typer.echo(f"  {name}")
+            typer.echo(f"    Path: {sessions_dir / session_id}")
+            typer.echo(f"    Events: {len(session.events)}")
+            typer.echo(f"    URL: {url}")
+            if session.metadata.duration_ms:
+                duration_s = session.metadata.duration_ms / 1000
+                typer.echo(f"    Duration: {duration_s:.1f}s")
+            typer.echo("")
+        except Exception as e:
+            typer.echo(f"  [ERROR] {session_id}: {e}", err=True)
+
+
 if __name__ == "__main__":
     app()

@@ -6,15 +6,21 @@ from browser_agents.models import (
     ActionDefinition,
     ActionParameter,
     ActionStep,
-    RecordedEvent,
-    Recording,
+    RecordingSession,
+    SelectorCandidate,
+    SessionMetadata,
+    UIEvent,
+    UIEventType,
 )
 
 __all__ = [
     "ActionDefinition",
     "ActionParameter",
     "ActionStep",
-    "RecordedEvent",
-    "Recording",
+    "RecordingSession",
+    "SelectorCandidate",
+    "SessionMetadata",
+    "UIEvent",
+    "UIEventType",
     "__version__",
 ]

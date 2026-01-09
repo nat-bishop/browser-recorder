@@ -16,7 +16,9 @@
       "Bash(uv run:*)",
       "Skill(commit)",
       "Bash(ls:*)",
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "mcp__langfuse-docs__searchLangfuseDocs",
+      "mcp__docs-langchain__SearchDocsByLangChain"
     ]
   }
 }

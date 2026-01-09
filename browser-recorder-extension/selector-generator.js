@@ -163,14 +163,14 @@ function getAccessibleName(element) {
     const ariaLabel = element.getAttribute("aria-label");
     if (ariaLabel) return ariaLabel.trim();
 
-    // 2. aria-labelledby
+    // 2. aria-labelledby (can contain multiple space-separated IDs)
     const labelledBy = element.getAttribute("aria-labelledby");
     if (labelledBy) {
-        const labelEl = document.getElementById(labelledBy);
-        if (labelEl) {
-            const text = labelEl.textContent?.trim();
-            if (text) return text;
-        }
+        const ids = labelledBy.split(/\s+/);
+        const texts = ids
+            .map(id => document.getElementById(id)?.textContent?.trim())
+            .filter(Boolean);
+        if (texts.length > 0) return texts.join(" ");
     }
 
     // 3. For buttons/links: use text content

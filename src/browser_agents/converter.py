@@ -157,7 +157,11 @@ def preprocess_events(events: list[UIEvent]) -> list[dict[str, Any]]:
 
         # Deduplicate consecutive navigations to same URL
         if event_type == "navigate":
-            if processed and processed[-1].get("url") == event.url:
+            if (
+                processed
+                and processed[-1].get("event_type") == "navigate"
+                and processed[-1].get("url") == event.url
+            ):
                 continue
 
         # Build event dict
@@ -421,8 +425,12 @@ try:
 
             return result
 
-        except Exception as e:
-            return f"Conversion failed: {e}"
+        except FileNotFoundError as e:
+            return f"Prompt file not found: {e}"
+        except ValueError as e:
+            return f"Invalid prompt format: {e}"
+        except (ConnectionError, TimeoutError) as e:
+            return f"LLM connection failed: {e}"
 
 except ImportError:
     # Old models not available, legacy functions not defined

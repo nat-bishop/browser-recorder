@@ -7,22 +7,26 @@ Technical overview of browser-agents - a tool for recording browser interactions
 ```mermaid
 flowchart LR
     subgraph Recording
+        CE[Chrome Extension] -->|Export JSON| S1[(sessions/)]
         B[Browser] -->|JS Events| R[recorder.py]
-        R -->|JSON| S[(workflows/)]
+        R -->|JSON| S2[(workflows/)]
     end
 
     subgraph Playback
-        S -->|Load| P[playback.py]
-        P -->|Playwright| B2[Browser]
+        S1 -->|Load| SE[SessionExecutor]
+        SE -->|SelectorResolver| B2[Browser]
+        S2 -->|Load| P[playback.py]
+        P -->|Playwright| B2
     end
 
     subgraph Conversion
-        S -->|Load| C[converter.py]
-        C -->|Preprocess| PP[Collapsed Events]
+        S1 -->|Load| C1[converter.py]
+        S2 -->|Load| C2[converter.py]
+        C1 -->|Preprocess| PP[Collapsed Events]
+        C2 -->|Preprocess| PP
         PP -->|Prompt| L[llm.py]
-        L -->|Ollama| O[Local LLM]
+        L -->|LLM| O[Local/Cloud LLM]
         O -->|Structured Output| AD[ActionDefinition]
-        AD -->|Append| S
     end
 
     CLI[cli.py] --> Recording
@@ -34,16 +38,97 @@ flowchart LR
 
 ### Entry Point: `cli.py`
 
-Typer-based CLI with five commands:
-- `record <url>` - Start recording session (supports `--name`, `--description`)
-- `replay <file>` - Replay a recording (supports `--guided`, `--name` for action selection)
-- `convert <file>` - Convert to ActionDefinition via LLM (appends to actions list)
-- `list [dir]` - List all workflows with their names and actions
-- `set-success <file>` - Define success criteria for a workflow
+Typer-based CLI with two parallel command sets:
+
+**Session Commands** (Chrome Extension workflow - `sessions/`):
+- `import-session <file>` - Import Chrome extension export
+- `replay-session <session>` - Replay with multi-selector resolution (supports `--safe`)
+- `convert-session <session>` - Convert session to ActionDefinition via LLM
+- `list-sessions` - List all sessions
+
+**Workflow Commands** (Playwright workflow - `workflows/`):
+- `record <url>` - Start recording session
+- `replay <file>` - Replay a recording (supports `--guided`, `--demo`)
+- `convert <file>` - Convert to ActionDefinition via LLM
+- `list [dir]` - List all workflows
 
 Uses lazy imports for heavy dependencies (LangChain loaded only for `convert`).
 
-### Recording: `recorder.py`
+### Chrome Extension: `browser-recorder-extension/`
+
+MV3 Chrome extension for recording from existing browser session:
+
+| File | Purpose |
+|------|---------|
+| `manifest.json` | MV3 config, `all_frames: true` for iframe support |
+| `background.js` | Service worker, session state, navigate events |
+| `content.js` | Event capture (11 event types) |
+| `selector-generator.js` | Codegen-style selectors |
+| `popup.html/js` | Start/stop/export UI |
+
+**Advantages over Playwright:**
+- User's existing session (logged in, cookies)
+- iframe capture via `all_frames: true`
+- No browser launch overhead
+
+### Models Package: `models/`
+
+New Pydantic models for Codegen-style multi-selector capture:
+
+| Module | Models |
+|--------|--------|
+| `selectors.py` | `SelectorCandidate` (strategy, value, confidence) |
+| `events.py` | `UIEvent`, `UIEventType` (11 event types) |
+| `session.py` | `RecordingSession`, `SessionMetadata`, `VideoInfo` |
+| `workflow.py` | `ActionDefinition`, `ActionStep`, `ActionParameter` |
+
+**SelectorCandidate strategies** (priority order):
+1. `role` - ARIA role + accessible name (highest priority)
+2. `label` - Form label text
+3. `placeholder` - Input placeholder
+4. `text` - Element text content
+5. `testid` - data-testid attribute
+6. `css` - CSS selector (fallback)
+
+**UIEventType** - 11 event types:
+- Mouse: `click`, `double_click`, `right_click`
+- Input: `type`, `clear`, `select_option`
+- Checkbox: `check`, `uncheck`
+- Other: `scroll`, `navigate`, `key_press`
+
+### Playback Package: `playback/`
+
+Session replay with multi-selector resolution:
+
+| Module | Class | Purpose |
+|--------|-------|---------|
+| `selector_resolver.py` | `SelectorResolver` | Priority-based selector resolution |
+| `executor.py` | `SessionExecutor` | Handles all 11 event types |
+| `safe_replay.py` | `SafeReplayController` | Network interception |
+
+**SelectorResolver** - Tries selectors in priority order:
+```python
+async def resolve(self, event: UIEvent) -> Locator | None:
+    for candidate in event.selectors:
+        locator = self._to_locator(candidate)
+        if await locator.count() == 1:
+            return locator
+    return None  # Fall back to coordinates
+```
+
+**SafeReplayMode** - Network interception modes:
+- `LIVE` - No interception
+- `WARN` - Log but allow POST/PUT/DELETE
+- `BLOCK` - Abort state-changing requests
+- `MOCK` - Return fake success responses
+
+### Storage Package: `storage/`
+
+| Module | Class | Purpose |
+|--------|-------|---------|
+| `session_store.py` | `SessionStore` | Load/save sessions to `sessions/` |
+
+### Recording: `recorder.py` (Playwright)
 
 Captures browser events via injected JavaScript:
 1. Injects `RECORDER_SCRIPT` into pages via `page.add_init_script()`
@@ -57,7 +142,7 @@ Captures browser events via injected JavaScript:
 - Browser close detection via page "close" event (stops recording when user closes window)
 - Ctrl+C handler also works as fallback
 
-### Playback: `playback.py`
+### Playback: `playback.py` (Legacy)
 
 Replays workflows with Playwright:
 - Loads events via Pydantic validation
@@ -242,6 +327,20 @@ Pydantic validation happens at system boundaries:
 
 ## Storage Layout
 
+### Sessions (Chrome Extension)
+
+```
+sessions/
+  {session_id}/
+    session.json           # RecordingSession (UIEvents with multi-selector)
+    media/
+      recording.webm       # Video (optional, future)
+    processed/
+      workflow.json        # ActionDefinition from LLM conversion
+```
+
+### Workflows (Playwright)
+
 ```
 workflows/
   {session_id}/
@@ -249,6 +348,35 @@ workflows/
     screenshots/           # Screenshots from recording
       0001.png
       0002.png
+```
+
+### Session Format (RecordingSession)
+
+Chrome extension exports use `RecordingSession` with multi-selector `UIEvent`:
+
+```json
+{
+  "metadata": {
+    "session_id": "sess_abc123",
+    "source_url": "https://example.com",
+    "created_at": "2024-12-21T10:00:00Z"
+  },
+  "events": [
+    {
+      "timestamp": "2024-12-21T10:00:01Z",
+      "event_type": "click",
+      "selectors": [
+        {"strategy": "role", "value": "button", "confidence": "high", "role": "button", "name": "Submit"},
+        {"strategy": "testid", "value": "submit-btn", "confidence": "high"},
+        {"strategy": "css", "value": "#submit-button", "confidence": "low"}
+      ],
+      "x": 100,
+      "y": 200,
+      "element_type": "button",
+      "element_text": "Submit"
+    }
+  ]
+}
 ```
 
 ### Workflow Format (v2)

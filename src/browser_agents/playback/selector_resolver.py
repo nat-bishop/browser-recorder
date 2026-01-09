@@ -22,6 +22,8 @@ class SelectorResolver:
 
     If all selectors fail, returns None and caller should fall back
     to coordinates.
+
+    Supports iframe context via UIEvent.frame_type and frame_src.
     """
 
     def __init__(self, page: Page) -> None:
@@ -40,6 +42,8 @@ class SelectorResolver:
         Tries each selector in priority order. Returns the first
         selector that matches exactly one element.
 
+        Handles iframe context when event.frame_type == "iframe".
+
         Args:
             event: The UIEvent containing selectors to try.
 
@@ -49,9 +53,12 @@ class SelectorResolver:
         if not event.selectors:
             return None
 
+        # Get the appropriate context (main page or iframe)
+        context = self._get_frame_context(event)
+
         for candidate in event.selectors:
             try:
-                locator = self._to_locator(candidate)
+                locator = self._to_locator(candidate, context)
                 count = await locator.count()
 
                 if count == 1:
@@ -71,6 +78,31 @@ class SelectorResolver:
         self._last_used_selector = None
         self._last_locator = None
         return None
+
+    def _get_frame_context(self, event: UIEvent) -> Page:
+        """Get the appropriate frame context for an event.
+
+        If the event occurred in an iframe, try to find that frame.
+        Falls back to main page if frame not found.
+
+        Args:
+            event: The UIEvent to get context for.
+
+        Returns:
+            The Page or Frame to use for locator resolution.
+        """
+        if event.frame_type == "iframe" and event.frame_src:
+            # Try to find the iframe by its src URL
+            frame = self.page.frame(url=event.frame_src)
+            if frame:
+                return frame  # type: ignore[return-value]
+
+            # Try partial URL match (some iframes have dynamic params)
+            for frame in self.page.frames:
+                if event.frame_src in (frame.url or ""):
+                    return frame  # type: ignore[return-value]
+
+        return self.page
 
     async def resolve_selectors(
         self, selectors: list[SelectorCandidate]
@@ -95,13 +127,19 @@ class SelectorResolver:
             except Exception:
                 continue
 
+        # Reset tracking on failure (match resolve() behavior)
+        self._last_used_selector = None
+        self._last_locator = None
         return None
 
-    def _to_locator(self, selector: SelectorCandidate) -> Locator:
+    def _to_locator(
+        self, selector: SelectorCandidate, context: Page | None = None
+    ) -> Locator:
         """Convert a SelectorCandidate to a Playwright Locator.
 
         Args:
             selector: The selector candidate to convert.
+            context: The Page or Frame to use (defaults to self.page).
 
         Returns:
             A Playwright Locator.
@@ -109,29 +147,31 @@ class SelectorResolver:
         Raises:
             ValueError: If the selector strategy is unknown.
         """
+        ctx = context or self.page
+
         match selector.strategy:
             case "role":
                 if selector.role and selector.name:
-                    return self.page.get_by_role(selector.role, name=selector.name)  # type: ignore[arg-type]
+                    return ctx.get_by_role(selector.role, name=selector.name)  # type: ignore[arg-type]
                 if selector.role:
-                    return self.page.get_by_role(selector.role)  # type: ignore[arg-type]
+                    return ctx.get_by_role(selector.role)  # type: ignore[arg-type]
                 # Fallback to using value as CSS selector
-                return self.page.locator(selector.value)
+                return ctx.locator(selector.value)
 
             case "label":
-                return self.page.get_by_label(selector.value)
+                return ctx.get_by_label(selector.value)
 
             case "placeholder":
-                return self.page.get_by_placeholder(selector.value)
+                return ctx.get_by_placeholder(selector.value)
 
             case "text":
-                return self.page.get_by_text(selector.value)
+                return ctx.get_by_text(selector.value)
 
             case "testid":
-                return self.page.get_by_test_id(selector.value)
+                return ctx.get_by_test_id(selector.value)
 
             case "css":
-                return self.page.locator(selector.value)
+                return ctx.locator(selector.value)
 
             case _:
                 raise ValueError(f"Unknown selector strategy: {selector.strategy}")

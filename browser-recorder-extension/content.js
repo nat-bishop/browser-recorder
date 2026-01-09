@@ -122,15 +122,12 @@ if (window.__browserRecorderInitialized) {
     function handleClick(e) {
         if (!isRecording) return;
 
-        // Determine click type based on detail
-        let eventType = "click";
-        if (e.button === 2) {
-            eventType = "right_click";
-        }
+        // Skip right-clicks - they're handled by handleContextMenu
+        if (e.button === 2) return;
 
         const meta = getElementMeta(e.target);
         recordEvent({
-            event_type: eventType,
+            event_type: "click",
             ...meta,
             x: e.clientX,
             y: e.clientY

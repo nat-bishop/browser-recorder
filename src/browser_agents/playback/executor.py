@@ -37,6 +37,7 @@ class SessionExecutor:
     - Falls back to coordinates when all selectors fail
     - Configurable delay between events
     - Progress callback support
+    - Configurable navigation wait strategy
     """
 
     def __init__(
@@ -44,6 +45,7 @@ class SessionExecutor:
         page: Page,
         delay_ms: int = DEFAULT_DELAY_MS,
         on_event: Callable[[UIEvent, int, int], None] | None = None,
+        wait_until: str = "domcontentloaded",
     ) -> None:
         """Initialize the executor.
 
@@ -51,10 +53,13 @@ class SessionExecutor:
             page: Playwright page to execute on.
             delay_ms: Delay between events in milliseconds.
             on_event: Callback(event, index, total) called before each event.
+            wait_until: Navigation wait strategy ("load", "domcontentloaded",
+                "networkidle", "commit"). Default "domcontentloaded".
         """
         self.page = page
         self.delay_ms = delay_ms
         self.on_event = on_event
+        self.wait_until = wait_until
         self.resolver = SelectorResolver(page)
 
     async def replay_session(self, session: RecordingSession) -> None:
@@ -230,7 +235,7 @@ class SessionExecutor:
     async def _handle_navigate(self, event: UIEvent) -> None:
         """Handle navigate event."""
         if event.url:
-            await self.page.goto(event.url, wait_until="domcontentloaded")
+            await self.page.goto(event.url, wait_until=self.wait_until)  # type: ignore[arg-type]
 
     async def _handle_key_press(self, event: UIEvent) -> None:
         """Handle key press event."""

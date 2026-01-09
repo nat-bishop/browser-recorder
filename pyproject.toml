@@ -12,10 +12,12 @@ dependencies = [
     "playwright>=1.49.0",
     "pydantic>=2.10.0",
     "typer>=0.15.0",
-    # Phase 3: LLM-based recording conversion
+    # LLM providers
     "pydantic-settings>=2.7.0",
     "langchain-core>=0.3.0",
-    "langchain-openai>=0.3.0",
+    "langchain-openai>=0.3.0",      # Ollama (OpenAI-compatible)
+    "langchain-google-genai>=2.0.0", # Google Gemini
+    "langchain-anthropic>=0.3.0",    # Anthropic Claude
     "httpx>=0.28.0",
     "pyyaml>=6.0.0",
 ]
@@ -129,4 +131,10 @@ testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "browser: marks tests that require a browser",
+]
+
+[dependency-groups]
+dev = [
+    "git-cliff>=2.11.0",
+    "pre-commit>=4.5.1",
 ]

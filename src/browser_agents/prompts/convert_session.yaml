@@ -79,7 +79,7 @@ system_prompt: |
   - Button text, menu items
   - System-generated values
 
-  Use {param_name} syntax in step values.
+  Use {{param_name}} syntax in step values.
 
   ## Output Requirements
 
@@ -106,8 +106,8 @@ user_template: |
     - name: password, description: User password, example: secret123, is_sensitive: true
   steps:
     - action: navigate, target: https://example.com/login, description: Go to login page
-    - action: type, target: role=textbox[name="Email"], value: "{email}", description: Enter email address
-    - action: type, target: role=textbox[name="Password"], value: "{password}", description: Enter password
+    - action: type, target: role=textbox[name="Email"], value: "{{email}}", description: Enter email address
+    - action: type, target: role=textbox[name="Password"], value: "{{password}}", description: Enter password
     - action: click, target: role=button[name="Sign In"], description: Click sign in button
   domains: [example.com]
 

@@ -12,144 +12,199 @@ from unittest.mock import AsyncMock
 import pytest
 
 if TYPE_CHECKING:
-    from browser_agents.models import ActionDefinition, Workflow
+    from browser_agents.models import ActionDefinition, RecordingSession
 
 
 @pytest.fixture
-def workflows_dir(tmp_path: Path) -> Path:
-    """Temporary directory for test workflows.
+def sessions_dir(tmp_path: Path) -> Path:
+    """Temporary directory for test sessions.
 
     Uses pytest's tmp_path fixture which creates a unique temp dir per test.
     Automatically cleaned up after test completes.
     """
-    workflows = tmp_path / "workflows"
-    workflows.mkdir()
-    return workflows
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    return sessions
 
 
 @pytest.fixture
-def sample_workflow(workflows_dir: Path) -> Path:
-    """Create a minimal valid workflow for testing.
+def sample_session(sessions_dir: Path) -> Path:
+    """Create a minimal valid session for testing.
 
-    Returns path to a JSON file with:
-    - Valid workflow metadata
+    Returns path to a session directory with:
+    - Valid session metadata
     - One navigate event
     - One click event
     """
-    from browser_agents.models import RecordedEvent, Workflow
+    from browser_agents.models import (
+        RecordingSession,
+        SelectorCandidate,
+        SessionMetadata,
+        UIEvent,
+        UIEventType,
+    )
 
-    workflow = Workflow(
-        id="test123",
-        source_url="https://example.com",
-        created_at=datetime.now(UTC),
+    session = RecordingSession(
+        metadata=SessionMetadata(
+            id="test123",
+            version=1,
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            duration_ms=1000,
+            source_url="https://example.com",
+            browser_name="Chrome",
+            browser_version="120.0.0.0",
+            viewport_width=1920,
+            viewport_height=1080,
+        ),
         events=[
-            RecordedEvent(
-                timestamp=1.0, event_type="navigate", url="https://example.com"
+            UIEvent(
+                id="evt1",
+                timestamp=datetime.now(UTC),
+                relative_time_ms=0,
+                event_type=UIEventType.NAVIGATE,
+                url="https://example.com",
             ),
-            RecordedEvent(
-                timestamp=2.0, event_type="click", selector="#main-button", x=100, y=200
+            UIEvent(
+                id="evt2",
+                timestamp=datetime.now(UTC),
+                relative_time_ms=1000,
+                event_type=UIEventType.CLICK,
+                url="https://example.com",
+                selectors=[
+                    SelectorCandidate(
+                        strategy="role",
+                        value='role=button[name="Submit"]',
+                        confidence="high",
+                    ),
+                    SelectorCandidate(
+                        strategy="css",
+                        value="#main-button",
+                        confidence="low",
+                    ),
+                ],
+                x=100,
+                y=200,
             ),
         ],
     )
 
-    workflow_file = workflows_dir / "test_session.json"
-    workflow_file.write_text(workflow.model_dump_json(indent=2))
-    return workflow_file
+    session_dir = sessions_dir / "test123"
+    session_dir.mkdir()
+    session_file = session_dir / "session.json"
+    session_file.write_text(session.model_dump_json(indent=2))
+    return session_dir
 
 
 @pytest.fixture
-def empty_workflow(workflows_dir: Path) -> Path:
-    """Create a workflow with no events."""
-    from browser_agents.models import Workflow
+def sample_session_file(sample_session: Path) -> Path:
+    """Return the session.json file path from sample_session."""
+    return sample_session / "session.json"
 
-    workflow = Workflow(
-        id="empty",
-        source_url="https://example.com",
-        created_at=datetime.now(UTC),
+
+@pytest.fixture
+def empty_session(sessions_dir: Path) -> Path:
+    """Create a session with no events."""
+    from browser_agents.models import RecordingSession, SessionMetadata
+
+    session = RecordingSession(
+        metadata=SessionMetadata(
+            id="empty",
+            version=1,
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            duration_ms=0,
+            source_url="https://example.com",
+            browser_name="Chrome",
+            browser_version="120.0.0.0",
+            viewport_width=1920,
+            viewport_height=1080,
+        ),
         events=[],
     )
 
-    workflow_file = workflows_dir / "empty_session.json"
-    workflow_file.write_text(workflow.model_dump_json(indent=2))
-    return workflow_file
+    session_dir = sessions_dir / "empty"
+    session_dir.mkdir()
+    session_file = session_dir / "session.json"
+    session_file.write_text(session.model_dump_json(indent=2))
+    return session_dir
 
 
 @pytest.fixture
-def invalid_workflow(workflows_dir: Path) -> Path:
-    """Create an invalid workflow file for error testing."""
-    workflow_file = workflows_dir / "invalid.json"
-    workflow_file.write_text("not valid json\n")
-    return workflow_file
+def invalid_session(sessions_dir: Path) -> Path:
+    """Create an invalid session file for error testing."""
+    session_dir = sessions_dir / "invalid"
+    session_dir.mkdir()
+    session_file = session_dir / "session.json"
+    session_file.write_text("not valid json\n")
+    return session_dir
 
 
 # =============================================================================
-# Phase 3: Converter test fixtures
+# Converter test fixtures
 # =============================================================================
 
 
 @pytest.fixture
-def sample_workflow_model() -> "Workflow":
-    """Create a Workflow model for converter tests."""
-    from browser_agents.models import RecordedEvent, Workflow
-
-    return Workflow(
-        id="test123",
-        source_url="https://example.com",
-        created_at=datetime.now(UTC),
-        events=[
-            RecordedEvent(
-                timestamp=1.0, event_type="navigate", url="https://example.com"
-            ),
-            RecordedEvent(
-                timestamp=2.0,
-                event_type="type",
-                selector="#email",
-                value="test@example.com",
-            ),
-            RecordedEvent(timestamp=3.0, event_type="click", selector="#submit"),
-        ],
+def sample_session_model() -> "RecordingSession":
+    """Create a RecordingSession model for converter tests."""
+    from browser_agents.models import (
+        RecordingSession,
+        SelectorCandidate,
+        SessionMetadata,
+        UIEvent,
+        UIEventType,
     )
 
-
-@pytest.fixture
-def verbose_workflow_model() -> "Workflow":
-    """Create a Workflow with verbose keystroke events for preprocessing tests."""
-    from browser_agents.models import RecordedEvent, Workflow
-
-    return Workflow(
-        id="verbose123",
-        source_url="https://example.com",
-        created_at=datetime.now(UTC),
+    return RecordingSession(
+        metadata=SessionMetadata(
+            id="test123",
+            version=1,
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            duration_ms=3000,
+            source_url="https://example.com",
+            browser_name="Chrome",
+            browser_version="120.0.0.0",
+            viewport_width=1920,
+            viewport_height=1080,
+        ),
         events=[
-            RecordedEvent(
-                timestamp=1.0, event_type="navigate", url="https://example.com"
+            UIEvent(
+                id="evt1",
+                timestamp=datetime.now(UTC),
+                relative_time_ms=0,
+                event_type=UIEventType.NAVIGATE,
+                url="https://example.com",
             ),
-            # Keystroke sequence that should be collapsed
-            RecordedEvent(
-                timestamp=2.0, event_type="type", selector="#email", value="t"
+            UIEvent(
+                id="evt2",
+                timestamp=datetime.now(UTC),
+                relative_time_ms=1000,
+                event_type=UIEventType.TYPE,
+                url="https://example.com",
+                selectors=[
+                    SelectorCandidate(
+                        strategy="role",
+                        value='role=textbox[name="Email"]',
+                        confidence="high",
+                    ),
+                ],
+                value="test@example.com",
             ),
-            RecordedEvent(
-                timestamp=2.1, event_type="type", selector="#email", value="te"
-            ),
-            RecordedEvent(
-                timestamp=2.2, event_type="type", selector="#email", value="tes"
-            ),
-            RecordedEvent(
-                timestamp=2.3, event_type="type", selector="#email", value="test"
-            ),
-            # Scroll events that should be removed
-            RecordedEvent(timestamp=3.0, event_type="scroll", scroll_x=0, scroll_y=100),
-            RecordedEvent(timestamp=3.1, event_type="scroll", scroll_x=0, scroll_y=200),
-            # Click
-            RecordedEvent(
-                timestamp=4.0, event_type="click", selector="#submit", x=100, y=200
-            ),
-            # Duplicate navigation that should be deduplicated
-            RecordedEvent(
-                timestamp=5.0, event_type="navigate", url="https://example.com/result"
-            ),
-            RecordedEvent(
-                timestamp=5.1, event_type="navigate", url="https://example.com/result"
+            UIEvent(
+                id="evt3",
+                timestamp=datetime.now(UTC),
+                relative_time_ms=2000,
+                event_type=UIEventType.CLICK,
+                url="https://example.com",
+                selectors=[
+                    SelectorCandidate(
+                        strategy="role",
+                        value='role=button[name="Submit"]',
+                        confidence="high",
+                    ),
+                ],
             ),
         ],
     )
@@ -183,13 +238,13 @@ def mock_action_definition() -> "ActionDefinition":
             ),
             ActionStep(
                 action=StepAction.type,
-                target="#email",
+                target='role=textbox[name="Email"]',
                 value="{email}",
                 description="Enter email address",
             ),
             ActionStep(
                 action=StepAction.click,
-                target="#submit",
+                target='role=button[name="Submit"]',
                 description="Click submit button",
             ),
         ],

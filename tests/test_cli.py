@@ -19,87 +19,111 @@ class TestCLIHelp:
     """Tests for CLI help and basic structure."""
 
     def test_help_shows_commands(self) -> None:
-        """--help shows both record and replay commands."""
+        """--help shows session commands."""
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "record" in result.stdout
-        assert "replay" in result.stdout
+        assert "replay-session" in result.stdout
+        assert "import-session" in result.stdout
+        assert "convert-session" in result.stdout
+        assert "list-sessions" in result.stdout
 
-    def test_record_help(self) -> None:
-        """record --help shows URL argument."""
-        result = runner.invoke(app, ["record", "--help"])
+    def test_replay_session_help(self) -> None:
+        """replay-session --help shows session argument."""
+        result = runner.invoke(app, ["replay-session", "--help"])
         assert result.exit_code == 0
-        assert "URL" in result.stdout or "url" in result.stdout.lower()
+        assert "session" in result.stdout.lower()
 
-    def test_replay_help(self) -> None:
-        """replay --help shows workflow argument."""
-        result = runner.invoke(app, ["replay", "--help"])
+    def test_import_session_help(self) -> None:
+        """import-session --help shows source file argument."""
+        result = runner.invoke(app, ["import-session", "--help"])
         assert result.exit_code == 0
-        assert "workflow" in result.stdout.lower()
+        assert "source" in result.stdout.lower() or "file" in result.stdout.lower()
+
+    def test_convert_session_help(self) -> None:
+        """convert-session --help shows description option."""
+        result = runner.invoke(app, ["convert-session", "--help"])
+        assert result.exit_code == 0
+        assert "--description" in result.stdout or "-d" in result.stdout
 
     def test_no_args_shows_help(self) -> None:
-        """Running with no args shows help (no_args_is_help=True).
-
-        Note: Typer returns exit code 0 for --help but may return 2 for
-        no_args_is_help. We just verify the help content is shown.
-        """
+        """Running with no args shows help (no_args_is_help=True)."""
         result = runner.invoke(app, [])
         # Help content should be shown regardless of exit code
-        assert "record" in result.stdout
-        assert "replay" in result.stdout
+        assert "replay-session" in result.stdout
+        assert "import-session" in result.stdout
 
 
-class TestReplayCommand:
-    """Tests for replay command error handling."""
+class TestReplaySessionCommand:
+    """Tests for replay-session command error handling."""
 
-    def test_replay_missing_file_errors(self) -> None:
-        """Replay with nonexistent file returns error."""
-        result = runner.invoke(app, ["replay", "nonexistent.json"])
+    def test_replay_missing_session_errors(self) -> None:
+        """Replay with nonexistent session returns error."""
+        result = runner.invoke(app, ["replay-session", "nonexistent"])
         assert result.exit_code == 1
-        # Error message may be in stdout or stderr, check combined output
         assert "not found" in result.output.lower()
 
-    def test_replay_accepts_demo_flag(self) -> None:
-        """Replay accepts --demo flag and related options."""
-        result = runner.invoke(app, ["replay", "--help"])
-        assert "--demo" in result.stdout or "-d" in result.stdout
-        assert "--delay" in result.stdout
-        assert "--speed" in result.stdout
+    def test_replay_accepts_safe_flag(self) -> None:
+        """Replay accepts --safe flag."""
+        result = runner.invoke(app, ["replay-session", "--help"])
+        assert "--safe" in result.stdout or "-s" in result.stdout
 
-    def test_replay_accepts_action_flag(self) -> None:
-        """Replay accepts --action flag for action replay."""
-        result = runner.invoke(app, ["replay", "--help"])
-        assert "--action" in result.stdout or "-a" in result.stdout
-        assert "--param" in result.stdout or "-p" in result.stdout
+    def test_replay_accepts_mode_option(self) -> None:
+        """Replay accepts --mode option for safe replay."""
+        result = runner.invoke(app, ["replay-session", "--help"])
+        assert "--mode" in result.stdout or "-m" in result.stdout
 
 
-class TestRecordCommand:
-    """Tests for record command argument handling."""
+class TestImportSessionCommand:
+    """Tests for import-session command argument handling."""
 
-    def test_record_requires_url(self) -> None:
-        """Record without URL shows error."""
-        result = runner.invoke(app, ["record"])
+    def test_import_requires_source(self) -> None:
+        """Import without source file shows error."""
+        result = runner.invoke(app, ["import-session"])
         assert result.exit_code != 0  # Missing required argument
 
-    def test_record_accepts_output_option(self) -> None:
-        """Record accepts --output option."""
-        result = runner.invoke(app, ["record", "--help"])
+    def test_import_accepts_output_option(self) -> None:
+        """Import accepts --output option."""
+        result = runner.invoke(app, ["import-session", "--help"])
         assert "--output" in result.stdout or "-o" in result.stdout
+
+    def test_import_missing_file_errors(self) -> None:
+        """Import with nonexistent file returns error."""
+        result = runner.invoke(app, ["import-session", "nonexistent.json"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+
+class TestConvertSessionCommand:
+    """Tests for convert-session command."""
+
+    def test_convert_requires_description(self) -> None:
+        """Convert requires --description option."""
+        result = runner.invoke(app, ["convert-session", "some_session"])
+        assert result.exit_code != 0  # Missing required option
+
+    def test_convert_missing_session_errors(self) -> None:
+        """Convert with nonexistent session returns error."""
+        result = runner.invoke(
+            app, ["convert-session", "nonexistent", "-d", "Test workflow"]
+        )
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
+
+
+class TestListSessionsCommand:
+    """Tests for list-sessions command."""
+
+    def test_list_missing_dir_errors(self) -> None:
+        """List with nonexistent directory returns error."""
+        result = runner.invoke(app, ["list-sessions", "nonexistent_dir"])
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower()
 
 
 class TestCLIWithFixtures:
-    """Tests using workflow fixtures from conftest.py."""
+    """Tests using session fixtures from conftest.py."""
 
-    def test_replay_valid_workflow_path(self, sample_workflow: Path) -> None:
-        """Replay with valid file path doesn't error on path check.
-
-        Note: This will still fail because we can't actually launch
-        a browser in CI, but it validates path handling.
-        """
-        # We can't actually run replay without a browser,
-        # but we can verify the file exists check passes
-        assert sample_workflow.exists()
-
-        # In a real integration test with browser, this would work:
-        # result = runner.invoke(app, ["replay", str(sample_workflow)])
-        # assert result.exit_code == 0
+    def test_import_valid_session(self, sample_session_file: Path) -> None:
+        """Import with valid session file works."""
+        assert sample_session_file.exists()
+        # Note: Actually running import would need a tmp output dir

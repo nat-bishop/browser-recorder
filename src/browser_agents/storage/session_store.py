@@ -46,27 +46,6 @@ class SessionStore:
         content = session_path.read_text(encoding="utf-8")
         return RecordingSession.model_validate_json(content)
 
-    def save_session(self, session: RecordingSession) -> Path:
-        """Save a recording session.
-
-        Args:
-            session: The session to save.
-
-        Returns:
-            Path to the saved session.json file.
-        """
-        session_dir = self.base_path / session.metadata.id
-        session_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create media directory
-        (session_dir / "media").mkdir(exist_ok=True)
-
-        # Save session JSON
-        session_path = session_dir / "session.json"
-        session_path.write_text(session.model_dump_json(indent=2), encoding="utf-8")
-
-        return session_path
-
     def list_sessions(self) -> list[str]:
         """List all session IDs.
 
@@ -82,43 +61,3 @@ class SessionStore:
                 sessions.append(path.name)
 
         return sorted(sessions, reverse=True)  # Most recent first (by name)
-
-    def delete_session(self, session_id: str) -> bool:
-        """Delete a session and all its files.
-
-        Args:
-            session_id: The session ID to delete.
-
-        Returns:
-            True if deleted, False if session didn't exist.
-        """
-        import shutil
-
-        session_dir = self.base_path / session_id
-        if not session_dir.exists():
-            return False
-
-        shutil.rmtree(session_dir)
-        return True
-
-    def get_session_path(self, session_id: str) -> Path:
-        """Get the directory path for a session.
-
-        Args:
-            session_id: The session ID.
-
-        Returns:
-            Path to the session directory.
-        """
-        return self.base_path / session_id
-
-    def session_exists(self, session_id: str) -> bool:
-        """Check if a session exists.
-
-        Args:
-            session_id: The session ID to check.
-
-        Returns:
-            True if the session exists.
-        """
-        return (self.base_path / session_id / "session.json").exists()

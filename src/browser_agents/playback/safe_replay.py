@@ -61,14 +61,6 @@ class SafeReplayController:
         await self.page.route("**/*", self._handle_route)
         self._is_setup = True
 
-    async def teardown(self) -> None:
-        """Remove network interception."""
-        if not self._is_setup:
-            return
-
-        await self.page.unroute("**/*", self._handle_route)
-        self._is_setup = False
-
     async def _handle_route(self, route: Route) -> None:
         """Handle intercepted requests."""
         request = route.request
@@ -118,8 +110,3 @@ class SafeReplayController:
             "blocked_count": len(self.blocked_requests),
             "blocked_requests": self.blocked_requests,
         }
-
-    def reset_stats(self) -> None:
-        """Reset request statistics."""
-        self.blocked_requests = []
-        self.allowed_requests = []

@@ -13,13 +13,10 @@ from browser_agents.models import (
     ActionDefinition,
     ActionParameter,
     ActionStep,
-    ErrorDiagnosis,
-    MediaRefs,
     RecordingSession,
     SelectorCandidate,
     SessionMetadata,
     StepAction,
-    SuccessCondition,
     UIEvent,
     UIEventType,
 )
@@ -522,71 +519,3 @@ class TestActionDefinition:
         json_str = original.model_dump_json()
         restored = ActionDefinition.model_validate_json(json_str)
         assert restored.name == original.name
-
-
-class TestErrorDiagnosis:
-    """Tests for ErrorDiagnosis model."""
-
-    def test_error_diagnosis_conversion_type(self) -> None:
-        """ErrorDiagnosis with conversion error type is valid."""
-        diagnosis = ErrorDiagnosis(
-            error_type="conversion",
-            explanation="Tried to type into a dropdown element",
-            suggestion="Delete this step or re-record",
-            likely_cause="LLM generated wrong action type",
-        )
-        assert diagnosis.error_type == "conversion"
-
-    def test_error_diagnosis_execution_type(self) -> None:
-        """ErrorDiagnosis with execution error type is valid."""
-        diagnosis = ErrorDiagnosis(
-            error_type="execution",
-            explanation="Element not found",
-            suggestion="Retry or check if selector changed",
-            likely_cause="Selector may have changed since recording",
-        )
-        assert diagnosis.error_type == "execution"
-
-    def test_error_diagnosis_invalid_type_rejected(self) -> None:
-        """ErrorDiagnosis rejects invalid error types."""
-        with pytest.raises(ValidationError):
-            ErrorDiagnosis(
-                error_type="unknown",  # type: ignore[arg-type]
-                explanation="Test",
-                suggestion="Test",
-                likely_cause="Test",
-            )
-
-
-class TestMediaRefs:
-    """Tests for MediaRefs model."""
-
-    def test_media_refs_video_only(self) -> None:
-        """MediaRefs with only video is valid."""
-        media = MediaRefs(video="recording.webm")
-        assert media.video == "recording.webm"
-        assert media.audio is None
-
-    def test_media_refs_full(self) -> None:
-        """MediaRefs with all fields is valid."""
-        media = MediaRefs(
-            video="recording.webm",
-            audio="audio.mp3",
-            transcript=[{"time": 0, "text": "Hello"}],
-        )
-        assert media.video == "recording.webm"
-        assert media.audio == "audio.mp3"
-        assert len(media.transcript) == 1
-
-
-class TestSuccessCondition:
-    """Tests for SuccessCondition model."""
-
-    def test_success_condition(self) -> None:
-        """SuccessCondition is valid."""
-        condition = SuccessCondition(
-            description="Order confirmation page shown",
-            url_pattern=r".*\/confirmation$",
-        )
-        assert "confirmation" in condition.description
-        assert condition.url_pattern is not None

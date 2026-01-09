@@ -4,13 +4,12 @@ Replays recorded UIEvents using Codegen-style selector resolution.
 Falls back to coordinates when all selectors fail.
 """
 
-import asyncio
 from collections.abc import Callable
 
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-from browser_agents.models import RecordingSession, UIEvent, UIEventType
+from browser_agents.models import UIEvent, UIEventType
 
 from .selector_resolver import SelectorResolver
 
@@ -61,27 +60,6 @@ class SessionExecutor:
         self.on_event = on_event
         self.wait_until = wait_until
         self.resolver = SelectorResolver(page)
-
-    async def replay_session(self, session: RecordingSession) -> None:
-        """Replay all events from a recording session.
-
-        Args:
-            session: The RecordingSession to replay.
-
-        Raises:
-            PlaybackError: If an event fails to execute.
-        """
-        events = session.events
-        total = len(events)
-
-        for i, event in enumerate(events):
-            if self.on_event:
-                self.on_event(event, i, total)
-
-            await self._replay_event(event)
-
-            if self.delay_ms > 0 and i < total - 1:
-                await asyncio.sleep(self.delay_ms / 1000)
 
     async def replay_event(self, event: UIEvent) -> None:
         """Replay a single event.

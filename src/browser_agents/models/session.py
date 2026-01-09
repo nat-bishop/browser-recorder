@@ -72,8 +72,3 @@ class RecordingSession(BaseModel):
     events: list[UIEvent] = Field(
         default_factory=list, description="All UI events in order"
     )
-
-    # Filled after LLM conversion
-    processed_workflow_path: str | None = Field(
-        default=None, description="Path to processed workflow.json"
-    )

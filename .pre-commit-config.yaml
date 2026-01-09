@@ -15,13 +15,8 @@ repos:
         types: [python]
         pass_filenames: false
 
-      - id: git-cliff
-        name: git-cliff changelog
-        entry: bash -c 'uv run git-cliff -o CHANGELOG.md && git add CHANGELOG.md'
-        language: system
-        always_run: true
-        pass_filenames: false
-        stages: [pre-commit]
+      # NOTE: git-cliff runs manually, not in pre-commit (can't include current commit message)
+      # Run: uv run git-cliff -o CHANGELOG.md
 
       # TODO: Enable after fixing type errors from models refactoring
       # - id: basedpyright

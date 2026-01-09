@@ -105,8 +105,15 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B011", "T20", "E402", "E501", "F841"]  # assert False, print(), imports after pytestmark, long lines, unused vars
+"tests/*" = ["B011", "B017", "T20", "E402", "E501", "F841"]  # assert False, blind exception, print(), imports, long lines, unused vars
 ".claude/*" = ["T20", "E501", "F841"]  # print(), long lines, unused vars OK in CLI scripts
+"src/browser_agents/cli.py" = ["B008", "B904"]  # typer patterns, Exit doesn't need exception chaining
+"src/browser_agents/recorder.py" = ["B008", "SIM105"]  # typer patterns, try-except-pass for CSP is clearer
+"src/browser_agents/demo.py" = ["SIM105"]  # try-except-pass for browser errors has comments
+"src/browser_agents/playback.py" = ["SIM105"]  # try-except-pass for CSP
+"src/browser_agents/playback/*" = ["T20"]  # print statements are intentional logging
+"src/browser_agents/storage/*" = ["PERF401"]  # list comprehension less readable here
+"src/browser_agents/models/__init__.py" = ["RUF022"]  # __all__ sorted by category intentionally
 
 [tool.ruff.lint.isort]
 known-first-party = ["browser_agents"]

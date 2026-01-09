@@ -12,9 +12,9 @@ from .safe_replay import SafeReplayController, SafeReplayMode
 from .selector_resolver import SelectorResolver
 
 __all__ = [
+    "PlaybackError",
+    "SafeReplayController",
+    "SafeReplayMode",
     "SelectorResolver",
     "SessionExecutor",
-    "PlaybackError",
-    "SafeReplayMode",
-    "SafeReplayController",
 ]

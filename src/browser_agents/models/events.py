@@ -49,7 +49,16 @@ class UIEvent(BaseModel):
 
     # Element context for LLM understanding
     element_type: (
-        Literal["button", "link", "input", "checkbox", "radio", "select", "textarea", "generic"]
+        Literal[
+            "button",
+            "link",
+            "input",
+            "checkbox",
+            "radio",
+            "select",
+            "textarea",
+            "generic",
+        ]
         | None
     ) = Field(default=None, description="Type of HTML element interacted with")
     element_label: str | None = Field(
@@ -61,11 +70,17 @@ class UIEvent(BaseModel):
     input_type: str | None = Field(
         default=None, description="Input type attribute (password, email, text, etc.)"
     )
-    placeholder: str | None = Field(default=None, description="Placeholder text for inputs")
+    placeholder: str | None = Field(
+        default=None, description="Placeholder text for inputs"
+    )
 
     # Event-specific data
-    value: str | None = Field(default=None, description="Value for type/select_option events")
-    key: str | None = Field(default=None, description="Key for key_press events (Enter, Tab, etc.)")
+    value: str | None = Field(
+        default=None, description="Value for type/select_option events"
+    )
+    key: str | None = Field(
+        default=None, description="Key for key_press events (Enter, Tab, etc.)"
+    )
     scroll_x: int | None = Field(default=None, description="Horizontal scroll position")
     scroll_y: int | None = Field(default=None, description="Vertical scroll position")
 
@@ -73,7 +88,9 @@ class UIEvent(BaseModel):
     frame_type: Literal["main", "iframe"] = Field(
         default="main", description="Whether event occurred in main frame or iframe"
     )
-    frame_src: str | None = Field(default=None, description="Iframe src URL if in iframe")
+    frame_src: str | None = Field(
+        default=None, description="Iframe src URL if in iframe"
+    )
 
     # Fallback coordinates
     x: int | None = Field(default=None, description="Click X coordinate (fallback)")

@@ -18,8 +18,8 @@ Building a production-grade browser recording system with:
 |--------|--------|-------------|
 | Sprint 1 | ✅ Complete | Core Models & Selector Generator |
 | Sprint 2 | ✅ Complete | Multi-Selector Playback |
-| Sprint 3 | ⏳ Pending | Chrome Extension MVP |
-| Sprint 4 | ⏳ Pending | Polish, Conversion & Video |
+| Sprint 3 | ✅ Complete | Chrome Extension MVP |
+| Sprint 4 | ✅ Complete | LLM Conversion (Video deferred) |
 
 ---
 
@@ -161,59 +161,114 @@ async def resolve(self, event: UIEvent) -> Locator | None:
 
 ---
 
-## Sprint 3: Chrome Extension MVP ⏳
+## Sprint 3: Chrome Extension MVP ✅
 
-**Status**: Pending
-**Target**: Week 2-3
+**Status**: Complete
+**Completed**: 2025-01-08
 
-### Tasks
+### Deliverables
 
 | Task | Status | Files |
 |------|--------|-------|
-| Extension manifest | ⏳ | `browser-recorder-extension/manifest.json` |
-| Background script | ⏳ | `browser-recorder-extension/background.js` |
-| Content script | ⏳ | `browser-recorder-extension/content.js` |
-| Popup UI | ⏳ | `browser-recorder-extension/popup.html` |
-| CLI import command | ⏳ | `src/browser_agents/cli.py` |
+| Extension manifest | ✅ | `browser-recorder-extension/manifest.json` |
+| Background script | ✅ | `browser-recorder-extension/background.js` |
+| Content script | ✅ | `browser-recorder-extension/content.js` |
+| Popup UI | ✅ | `browser-recorder-extension/popup.html`, `popup.js` |
+| Selector generator | ✅ | `browser-recorder-extension/selector-generator.js` |
+| Icons | ✅ | `browser-recorder-extension/icons/` |
 
-### Target File Structure
+### New File Structure Created
 
 ```
-browser-recorder-extension/        ⏳ NEW
+browser-recorder-extension/        ✅ NEW
 ├── manifest.json                 # MV3, all_frames: true
-├── background.js                 # Service worker, session state
-├── content.js                    # Event capture (reuses selector-generator.js)
+├── background.js                 # Service worker, session state (150 lines)
+├── content.js                    # Event capture (250 lines)
+├── selector-generator.js         # Copied from src/browser_agents/js/
 ├── popup.html                    # Start/stop UI
-├── popup.js                      # UI logic
+├── popup.js                      # UI logic (120 lines)
 └── icons/
+    ├── icon16.png
+    ├── icon48.png
+    └── icon128.png
 ```
 
-### Key Advantage Over Playwright
+### Key Features Implemented
+
+**Event Capture** - All 11 event types:
+- `click`, `double_click`, `right_click` - Mouse events (capture phase)
+- `type`, `clear` - Input events (tracks value changes)
+- `select_option` - Select element changes
+- `check`, `uncheck` - Checkbox/radio changes
+- `scroll` - Debounced (150ms)
+- `key_press` - Special keys (Enter, Tab, Escape, arrows)
+- `navigate` - Tracked via background.js webNavigation API
+
+**Codegen-style Selectors** - Uses existing `selector-generator.js`:
+- Role + accessible name (highest priority)
+- Label, placeholder, text, testid
+- CSS (fallback)
+
+**Key Advantages Over Playwright**
 - `all_frames: true` enables iframe capture
 - User's existing Chrome session (logged in, cookies)
 - No browser launch overhead
 
+### Usage
+
+1. Load unpacked extension: `chrome://extensions` > Load unpacked > select `browser-recorder-extension/`
+2. Navigate to target page
+3. Click extension icon > "Start Recording"
+4. Perform interactions
+5. Click "Stop Recording" > "Export Session"
+6. Import: `uv run browser-agents import-session ~/Downloads/session.json`
+
 ---
 
-## Sprint 4: Polish, Conversion & Video ⏳
+## Sprint 4: Polish, Conversion & Video ✅
 
-**Status**: Pending
-**Target**: Week 3-4
+**Status**: Complete (conversion), Video deferred
+**Completed**: 2025-01-08
 
-### Tasks
+### Deliverables
 
 | Task | Status | Files |
 |------|--------|-------|
-| Update LLM conversion | ⏳ | `src/browser_agents/converter.py` |
-| Video capture | ⏳ | `browser-recorder-extension/video-capture.js` |
-| Update conversion prompt | ⏳ | `src/browser_agents/prompts/convert_session.yaml` |
-| Error handling | ⏳ | Various |
-| Documentation | ⏳ | `README.md` |
+| Update LLM conversion | ✅ | `src/browser_agents/converter.py` |
+| Create conversion prompt | ✅ | `src/browser_agents/prompts/convert_session.yaml` |
+| Add convert-session CLI | ✅ | `src/browser_agents/cli.py` |
+| Update preprocessing tests | ✅ | `tests/test_preprocessing.py` |
+| Video capture | ⏳ | Deferred to future sprint |
 
-### Key Features
-- LLM converts UIEvents → ActionDefinition
-- Video via chrome.tabCapture API
-- Timestamp sync via `relative_time_ms`
+### Key Features Implemented
+
+**Converter Updates:**
+- `load_session()` - Load new `RecordingSession` format
+- `get_best_selector()` - Select best from `SelectorCandidate` list
+- `preprocess_events()` - Handle all 11 event types, element context
+- `convert_session_to_action()` - LLM conversion for new format
+- `save_action_definition()` - Save to `sessions/{id}/processed/workflow.json`
+
+**New Prompt (`convert_session.yaml`):**
+- Documents all 11 event types
+- Explains selector strategies (role, label, placeholder, text, testid, css)
+- Leverages element context (type, label, text)
+- Handles key_press, check/uncheck, select_option
+
+**CLI Command:**
+```bash
+# Convert session to action definition
+uv run browser-agents convert-session sessions/sess_abc123 -d "Login and checkout"
+uv run browser-agents convert-session ~/Downloads/session.json -d "Search products"
+```
+
+### Test Results
+```
+tests/test_preprocessing.py: 17 passed
+tests/test_models.py: 42 passed
+tests/test_selector_resolver.py: 21 passed
+Total: 79 tests passing
+```
 
 ---
 
@@ -262,9 +317,13 @@ sessions/                          # NEW storage location
 ```bash
 # Unit tests (fast)
 uv run pytest tests/test_models.py -v              # 42 tests ✅
+uv run pytest tests/test_preprocessing.py -v       # 17 tests ✅
 
 # Selector resolution tests (Sprint 2)
-uv run pytest tests/test_selector_resolver.py -v   # ✅
+uv run pytest tests/test_selector_resolver.py -v   # 21 tests ✅
+
+# All fast tests
+uv run pytest tests/test_models.py tests/test_selector_resolver.py tests/test_preprocessing.py -v  # 79 tests ✅
 
 # Integration tests (browser)
 uv run pytest tests/test_browser.py -v --slow
@@ -286,10 +345,10 @@ uv run pytest -v
 | Selector fallback chain | 2 | ✅ |
 | Coordinate fallback | 2 | ✅ |
 | Safe replay mode | 2 | ✅ |
-| Chrome extension capture | 3 | ⏳ |
-| iframe support | 3 | ⏳ |
-| Video recording | 4 | ⏳ |
-| LLM conversion | 4 | ⏳ |
+| Chrome extension capture | 3 | ✅ |
+| iframe support | 3 | ✅ |
+| Video recording | 4 | ⏳ (deferred) |
+| LLM conversion | 4 | ✅ |
 
 ---
 

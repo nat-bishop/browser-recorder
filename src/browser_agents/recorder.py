@@ -233,7 +233,9 @@ class SessionRecorder:
         self._page: Page | None = None
         self._start_time_ms: int = 0
 
-    def _parse_selectors(self, selectors_data: list[dict] | None) -> list[SelectorCandidate]:
+    def _parse_selectors(
+        self, selectors_data: list[dict] | None
+    ) -> list[SelectorCandidate]:
         """Parse selector data from JavaScript into SelectorCandidate models."""
         if not selectors_data:
             return []

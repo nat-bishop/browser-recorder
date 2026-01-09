@@ -116,7 +116,9 @@ class TestConvertWorkflowToAction:
             "browser_agents.converter.get_structured_llm",
             return_value=mock_llm,
         ):
-            result = await convert_workflow_to_action(short_workflow, description="Click a button")
+            result = await convert_workflow_to_action(
+                short_workflow, description="Click a button"
+            )
 
         assert isinstance(result, str)
         assert "too short" in result.lower()

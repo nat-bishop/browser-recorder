@@ -127,7 +127,9 @@ class SessionExecutor:
                     await self._handle_key_press(event)
 
                 case _:
-                    raise PlaybackError(f"Unknown event type: {event.event_type}", event)
+                    raise PlaybackError(
+                        f"Unknown event type: {event.event_type}", event
+                    )
 
         except PlaywrightTimeoutError as e:
             raise PlaybackError(f"Timeout: {e}", event) from e
@@ -219,7 +221,9 @@ class SessionExecutor:
     async def _handle_scroll(self, event: UIEvent) -> None:
         """Handle scroll event."""
         if event.scroll_x is not None and event.scroll_y is not None:
-            await self.page.evaluate(f"window.scrollTo({event.scroll_x}, {event.scroll_y})")
+            await self.page.evaluate(
+                f"window.scrollTo({event.scroll_x}, {event.scroll_y})"
+            )
         elif event.scroll_y is not None:
             await self.page.evaluate(f"window.scrollTo(0, {event.scroll_y})")
 

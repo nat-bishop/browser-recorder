@@ -25,7 +25,9 @@ from browser_agents.models import (
 class ErrorType(str, Enum):
     """Classification of step execution errors."""
 
-    CONVERSION = "conversion"  # LLM generated wrong step (wrong action type, hallucinated)
+    CONVERSION = (
+        "conversion"  # LLM generated wrong step (wrong action type, hallucinated)
+    )
     EXECUTION = "execution"  # Step correct but failed to run (timeout, not found)
     VERIFICATION = "verification"  # Step ran but produced wrong result
 
@@ -88,7 +90,7 @@ class WorkflowModifications:
             if i in self.deleted_indices:
                 # Skip deleted steps
                 continue
-            elif i in self.replacements:
+            if i in self.replacements:
                 # Replace with new steps from re-recording
                 result.extend(self.replacements[i])
             else:
@@ -105,7 +107,9 @@ class StepHistory:
     description: str
     status: StepStatus = StepStatus.PENDING
     warning: str | None = None
-    warning_about_next: bool = False  # True if warning is about the NEXT step, not this one
+    warning_about_next: bool = (
+        False  # True if warning is about the NEXT step, not this one
+    )
     screenshot_path: Path | None = None
 
 
@@ -200,7 +204,9 @@ async def _extract_page_context(
         return f"<!-- Could not extract page HTML: {e} -->"
 
 
-async def _check_next_step_ready(page: "Page", next_step: ActionStep | None) -> str | None:
+async def _check_next_step_ready(
+    page: "Page", next_step: ActionStep | None
+) -> str | None:
     """Check if the next step's target element exists on the page.
 
     This is a "look-ahead" check to detect if we might be on the wrong page
@@ -310,7 +316,10 @@ def _get_plain_language_error(error: str, step: ActionStep) -> tuple[str, str | 
     error_lower = error.lower()
 
     # Type on non-input element (common conversion error)
-    if "not an <input>, <textarea>" in error_lower or "element is not an <input>" in error_lower:
+    if (
+        "not an <input>, <textarea>" in error_lower
+        or "element is not an <input>" in error_lower
+    ):
         if step.action == StepAction.type and step.target:
             if "select" in step.target.lower():
                 return (
@@ -463,7 +472,9 @@ async def _diagnose_error_with_llm(
         typer.echo("  [LLM diagnosis unavailable: prompt file not found]", err=True)
         return None
     except yaml.YAMLError as e:
-        typer.echo(f"  [LLM diagnosis unavailable: invalid prompt YAML - {e}]", err=True)
+        typer.echo(
+            f"  [LLM diagnosis unavailable: invalid prompt YAML - {e}]", err=True
+        )
         return None
     except (ConnectionError, TimeoutError) as e:
         typer.echo(f"  [LLM diagnosis unavailable: connection failed - {e}]", err=True)
@@ -506,33 +517,37 @@ async def _replay_action_step(page: Page, step: ActionStep) -> tuple[bool, str |
                 await page.goto(step.target)
             return True, None
 
-        elif step.action == StepAction.click:
+        if step.action == StepAction.click:
             if step.target:
                 await page.click(step.target, timeout=ELEMENT_TIMEOUT)
             elif step.fallback_coords and len(step.fallback_coords) >= 2:
                 await page.mouse.click(step.fallback_coords[0], step.fallback_coords[1])
             return True, None
 
-        elif step.action == StepAction.type:
+        if step.action == StepAction.type:
             if step.target and step.value is not None:
                 await page.fill(step.target, step.value, timeout=ELEMENT_TIMEOUT)
             elif step.value:
                 await page.keyboard.type(step.value)
             return True, None
 
-        elif step.action == StepAction.select:
+        if step.action == StepAction.select:
             # Handle <select> dropdown elements
             if step.target and step.value is not None:
-                await page.select_option(step.target, value=step.value, timeout=ELEMENT_TIMEOUT)
+                await page.select_option(
+                    step.target, value=step.value, timeout=ELEMENT_TIMEOUT
+                )
             return True, None
 
-        elif step.action == StepAction.scroll:
+        if step.action == StepAction.scroll:
             # Scroll to element or coordinates
             if step.target:
-                await page.locator(step.target).scroll_into_view_if_needed(timeout=ELEMENT_TIMEOUT)
+                await page.locator(step.target).scroll_into_view_if_needed(
+                    timeout=ELEMENT_TIMEOUT
+                )
             return True, None
 
-        elif step.action == StepAction.wait:
+        if step.action == StepAction.wait:
             await asyncio.sleep(1)
             return True, None
 
@@ -550,14 +565,14 @@ async def _replay_event(page: Page, event: RecordedEvent) -> bool:
                 await page.goto(event.url)
             return True
 
-        elif event.event_type == "click":
+        if event.event_type == "click":
             if event.selector:
                 await page.click(event.selector)
             elif event.x is not None and event.y is not None:
                 await page.mouse.click(event.x, event.y)
             return True
 
-        elif event.event_type == "type":
+        if event.event_type == "type":
             if event.selector and event.value is not None:
                 await page.fill(event.selector, event.value)
             elif event.value:
@@ -565,12 +580,14 @@ async def _replay_event(page: Page, event: RecordedEvent) -> bool:
                 await page.keyboard.type(event.value)
             return True
 
-        elif event.event_type == "scroll":
+        if event.event_type == "scroll":
             if event.scroll_x is not None and event.scroll_y is not None:
-                await page.evaluate(f"window.scrollTo({event.scroll_x}, {event.scroll_y})")
+                await page.evaluate(
+                    f"window.scrollTo({event.scroll_x}, {event.scroll_y})"
+                )
             return True
 
-        elif event.event_type == "wait":
+        if event.event_type == "wait":
             # Default wait of 1 second if no specific duration
             await asyncio.sleep(1)
             return True
@@ -705,7 +722,10 @@ async def _prompt_user_guidance(
     describe_choice = {"f": GuidedAction.DESCRIBE, "fix": GuidedAction.DESCRIBE}
     apply_fix_choice = {}
     if has_proposed_fix:
-        apply_fix_choice = {"x": GuidedAction.APPLY_FIX, "apply": GuidedAction.APPLY_FIX}
+        apply_fix_choice = {
+            "x": GuidedAction.APPLY_FIX,
+            "apply": GuidedAction.APPLY_FIX,
+        }
     go_back_choice = {}
     # Only offer go-back if there are warnings about steps BEFORE current
     # (warnings about current step don't help - we're already here)
@@ -796,7 +816,9 @@ async def _prompt_user_guidance(
         choice = typer.prompt("Choice", default=default).lower().strip()
         if choice in valid_choices:
             return valid_choices[choice], llm_diagnosis, page_html
-        typer.echo(f"Invalid choice. Valid options: {', '.join(set(valid_choices.keys()))}")
+        typer.echo(
+            f"Invalid choice. Valid options: {', '.join(set(valid_choices.keys()))}"
+        )
 
 
 async def _check_for_page_errors(page: Page) -> str | None:
@@ -981,13 +1003,17 @@ async def replay_workflow(
     # Determine what to replay
     if use_action:
         if not workflow.actions:
-            typer.echo("ERROR: Workflow has no actions defined. Run 'convert' first.", err=True)
+            typer.echo(
+                "ERROR: Workflow has no actions defined. Run 'convert' first.", err=True
+            )
             return 0, 0
 
         # Select which action to replay
         if action_name:
             # Find action by name
-            selected_action = next((a for a in workflow.actions if a.name == action_name), None)
+            selected_action = next(
+                (a for a in workflow.actions if a.name == action_name), None
+            )
             if not selected_action:
                 typer.echo(f"ERROR: Action '{action_name}' not found.", err=True)
                 typer.echo("Available actions:")
@@ -1053,7 +1079,8 @@ async def replay_workflow(
             i = 0
             # Initialize step history for tracking
             history: list[StepHistory] = [
-                StepHistory(index=idx, description=s.description) for idx, s in enumerate(steps)
+                StepHistory(index=idx, description=s.description)
+                for idx, s in enumerate(steps)
             ]
             while i < len(steps) and not aborted:
                 step = steps[i]
@@ -1063,7 +1090,8 @@ async def replay_workflow(
                     await asyncio.sleep(jitter)
 
                 typer.echo(
-                    f"[{i + 1}/{len(steps)}] {step.action.value}: {step.description} ", nl=False
+                    f"[{i + 1}/{len(steps)}] {step.action.value}: {step.description} ",
+                    nl=False,
                 )
 
                 success, error = await _replay_action_step(page, step)
@@ -1087,7 +1115,9 @@ async def replay_workflow(
                         # Mark current step as OK but record warning about next step
                         history[i].status = StepStatus.OK
                         history[i].warning = warning
-                        history[i].warning_about_next = True  # Warning is about NEXT step
+                        history[
+                            i
+                        ].warning_about_next = True  # Warning is about NEXT step
                         typer.echo(f"  WARNING: {warning}")
                         if guided:
                             typer.echo("  This might indicate we're on the wrong page.")
@@ -1102,7 +1132,9 @@ async def replay_workflow(
                         typer.echo(f"  ERROR: {error}", err=True)
 
                     # Take screenshot of current state (if browser still open)
-                    screenshot_path = workflow_path.parent / f"{workflow_path.stem}_error_{i}.png"
+                    screenshot_path = (
+                        workflow_path.parent / f"{workflow_path.stem}_error_{i}.png"
+                    )
                     try:
                         await page.screenshot(path=screenshot_path)
                         typer.echo(f"  Screenshot saved: {screenshot_path}")
@@ -1174,7 +1206,9 @@ async def replay_workflow(
                             i += 1
                         elif action == GuidedAction.RERECORD:
                             # Record new events from current state
-                            new_steps = await _rerecord_from_here(page, workflow_path.parent)
+                            new_steps = await _rerecord_from_here(
+                                page, workflow_path.parent
+                            )
                             if new_steps:
                                 if typer.confirm(
                                     f"Replace step {i + 1} with {len(new_steps)} new step(s)?",
@@ -1184,7 +1218,9 @@ async def replay_workflow(
                                     typer.echo("Replacement recorded. Continuing...")
                                     i += 1
                                 else:
-                                    typer.echo("Replacement cancelled. Skipping step...")
+                                    typer.echo(
+                                        "Replacement cancelled. Skipping step..."
+                                    )
                                     i += 1
                             else:
                                 typer.echo("Re-record cancelled. Skipping step...")
@@ -1223,7 +1259,9 @@ async def replay_workflow(
                                     if fix.new_value:
                                         typer.echo(f"  Value: {fix.new_value}")
                                     if fix.new_description:
-                                        typer.echo(f"  Description: {fix.new_description}")
+                                        typer.echo(
+                                            f"  Description: {fix.new_description}"
+                                        )
 
                                     if typer.confirm("Apply this fix?", default=True):
                                         # Create modified step
@@ -1314,14 +1352,18 @@ async def replay_workflow(
                                     f"  Replaying [{replay_idx + 1}]: {replay_step.description}...",
                                     nl=False,
                                 )
-                                success, _ = await _replay_action_step(page, replay_step)
+                                success, _ = await _replay_action_step(
+                                    page, replay_step
+                                )
                                 if success:
                                     typer.echo(" OK")
                                     # Brief wait for page to settle after each step
                                     await asyncio.sleep(0.3)
                                 else:
                                     typer.echo(" FAILED")
-                                    typer.echo("Could not replay to target step. Aborting.")
+                                    typer.echo(
+                                        "Could not replay to target step. Aborting."
+                                    )
                                     aborted = True
                                     break
 
@@ -1335,7 +1377,9 @@ async def replay_workflow(
 
                                 # Set i to the target step to retry it
                                 i = go_back_to
-                                typer.echo(f"\nNow at step {go_back_to + 1}. Retrying...")
+                                typer.echo(
+                                    f"\nNow at step {go_back_to + 1}. Retrying..."
+                                )
                         elif action == GuidedAction.ABORT:
                             typer.echo("Aborting replay...")
                             aborted = True
@@ -1438,7 +1482,9 @@ async def replay_workflow(
                 typer.echo(f"Steps deleted: {sorted(modifications.deleted_indices)}")
             if modifications.replacements:
                 for idx, new_steps in modifications.replacements.items():
-                    typer.echo(f"Step {idx + 1} replaced with {len(new_steps)} new step(s)")
+                    typer.echo(
+                        f"Step {idx + 1} replaced with {len(new_steps)} new step(s)"
+                    )
 
             save_prompt = "\nSave these changes to the workflow?"
             if aborted:
@@ -1453,7 +1499,9 @@ async def replay_workflow(
                 selected_action.steps = new_steps
                 save_workflow(workflow, workflow_path)
                 typer.echo(f"Saved updated workflow to: {workflow_path}")
-                typer.echo(f"Action '{selected_action.name}' now has {len(new_steps)} steps")
+                typer.echo(
+                    f"Action '{selected_action.name}' now has {len(new_steps)} steps"
+                )
             else:
                 typer.echo("Changes discarded.")
 

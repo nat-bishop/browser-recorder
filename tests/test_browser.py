@@ -60,7 +60,11 @@ class TestPlaybackIntegration:
             id="nav1",
             source_url="https://example.com",
             created_at=datetime.now(UTC),
-            events=[RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com")],
+            events=[
+                RecordedEvent(
+                    timestamp=1.0, event_type="navigate", url="https://example.com"
+                )
+            ],
         )
 
         workflow_file = workflows_dir / "nav_only.json"
@@ -69,7 +73,9 @@ class TestPlaybackIntegration:
         success, total = await replay_workflow(workflow_file)
         assert success == total == 1
 
-    async def test_replay_with_invalid_selector_takes_screenshot(self, workflows_dir: Path) -> None:
+    async def test_replay_with_invalid_selector_takes_screenshot(
+        self, workflows_dir: Path
+    ) -> None:
         """When replay fails on a click, a screenshot should be saved."""
         from datetime import datetime
 

@@ -59,7 +59,7 @@ class SelectorResolver:
                     self._last_used_selector = candidate
                     self._last_locator = locator
                     return locator
-                elif count > 1:
+                if count > 1:
                     # Multiple matches - try next selector
                     continue
                 # count == 0: No match - try next selector
@@ -72,7 +72,9 @@ class SelectorResolver:
         self._last_locator = None
         return None
 
-    async def resolve_selectors(self, selectors: list[SelectorCandidate]) -> Locator | None:
+    async def resolve_selectors(
+        self, selectors: list[SelectorCandidate]
+    ) -> Locator | None:
         """Resolve a list of selector candidates to a working locator.
 
         Args:
@@ -111,11 +113,10 @@ class SelectorResolver:
             case "role":
                 if selector.role and selector.name:
                     return self.page.get_by_role(selector.role, name=selector.name)  # type: ignore[arg-type]
-                elif selector.role:
+                if selector.role:
                     return self.page.get_by_role(selector.role)  # type: ignore[arg-type]
-                else:
-                    # Fallback to using value as CSS selector
-                    return self.page.locator(selector.value)
+                # Fallback to using value as CSS selector
+                return self.page.locator(selector.value)
 
             case "label":
                 return self.page.get_by_label(selector.value)

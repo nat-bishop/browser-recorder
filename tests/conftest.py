@@ -43,8 +43,12 @@ def sample_workflow(workflows_dir: Path) -> Path:
         source_url="https://example.com",
         created_at=datetime.now(UTC),
         events=[
-            RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
-            RecordedEvent(timestamp=2.0, event_type="click", selector="#main-button", x=100, y=200),
+            RecordedEvent(
+                timestamp=1.0, event_type="navigate", url="https://example.com"
+            ),
+            RecordedEvent(
+                timestamp=2.0, event_type="click", selector="#main-button", x=100, y=200
+            ),
         ],
     )
 
@@ -93,9 +97,14 @@ def sample_workflow_model() -> "Workflow":
         source_url="https://example.com",
         created_at=datetime.now(UTC),
         events=[
-            RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
             RecordedEvent(
-                timestamp=2.0, event_type="type", selector="#email", value="test@example.com"
+                timestamp=1.0, event_type="navigate", url="https://example.com"
+            ),
+            RecordedEvent(
+                timestamp=2.0,
+                event_type="type",
+                selector="#email",
+                value="test@example.com",
             ),
             RecordedEvent(timestamp=3.0, event_type="click", selector="#submit"),
         ],
@@ -112,20 +121,36 @@ def verbose_workflow_model() -> "Workflow":
         source_url="https://example.com",
         created_at=datetime.now(UTC),
         events=[
-            RecordedEvent(timestamp=1.0, event_type="navigate", url="https://example.com"),
+            RecordedEvent(
+                timestamp=1.0, event_type="navigate", url="https://example.com"
+            ),
             # Keystroke sequence that should be collapsed
-            RecordedEvent(timestamp=2.0, event_type="type", selector="#email", value="t"),
-            RecordedEvent(timestamp=2.1, event_type="type", selector="#email", value="te"),
-            RecordedEvent(timestamp=2.2, event_type="type", selector="#email", value="tes"),
-            RecordedEvent(timestamp=2.3, event_type="type", selector="#email", value="test"),
+            RecordedEvent(
+                timestamp=2.0, event_type="type", selector="#email", value="t"
+            ),
+            RecordedEvent(
+                timestamp=2.1, event_type="type", selector="#email", value="te"
+            ),
+            RecordedEvent(
+                timestamp=2.2, event_type="type", selector="#email", value="tes"
+            ),
+            RecordedEvent(
+                timestamp=2.3, event_type="type", selector="#email", value="test"
+            ),
             # Scroll events that should be removed
             RecordedEvent(timestamp=3.0, event_type="scroll", scroll_x=0, scroll_y=100),
             RecordedEvent(timestamp=3.1, event_type="scroll", scroll_x=0, scroll_y=200),
             # Click
-            RecordedEvent(timestamp=4.0, event_type="click", selector="#submit", x=100, y=200),
+            RecordedEvent(
+                timestamp=4.0, event_type="click", selector="#submit", x=100, y=200
+            ),
             # Duplicate navigation that should be deduplicated
-            RecordedEvent(timestamp=5.0, event_type="navigate", url="https://example.com/result"),
-            RecordedEvent(timestamp=5.1, event_type="navigate", url="https://example.com/result"),
+            RecordedEvent(
+                timestamp=5.0, event_type="navigate", url="https://example.com/result"
+            ),
+            RecordedEvent(
+                timestamp=5.1, event_type="navigate", url="https://example.com/result"
+            ),
         ],
     )
 
@@ -133,7 +158,12 @@ def verbose_workflow_model() -> "Workflow":
 @pytest.fixture
 def mock_action_definition() -> "ActionDefinition":
     """Create a valid ActionDefinition for mocking LLM responses."""
-    from browser_agents.models import ActionDefinition, ActionParameter, ActionStep, StepAction
+    from browser_agents.models import (
+        ActionDefinition,
+        ActionParameter,
+        ActionStep,
+        StepAction,
+    )
 
     return ActionDefinition(
         name="login_user",

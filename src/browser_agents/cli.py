@@ -352,7 +352,9 @@ def list_workflows(
             if workflow.actions:
                 typer.echo(f"    Actions ({len(workflow.actions)}):")
                 for action in workflow.actions:
-                    action_desc = action.description.encode("ascii", "replace").decode("ascii")
+                    action_desc = action.description.encode("ascii", "replace").decode(
+                        "ascii"
+                    )
                     typer.echo(f"      - {action.name}: {action_desc}")
             else:
                 typer.echo("    Actions: (none - run 'convert' to create)")
@@ -365,10 +367,17 @@ def list_workflows(
 
 @app.command(name="replay-session")
 def replay_session(
-    session_path: Path = typer.Argument(..., help="Path to session.json or session directory"),
-    delay: int = typer.Option(100, "--delay", "-d", help="Delay between events in milliseconds"),
+    session_path: Path = typer.Argument(
+        ..., help="Path to session.json or session directory"
+    ),
+    delay: int = typer.Option(
+        100, "--delay", "-d", help="Delay between events in milliseconds"
+    ),
     safe: bool = typer.Option(
-        False, "--safe", "-s", help="Enable safe replay mode (block state-changing requests)"
+        False,
+        "--safe",
+        "-s",
+        help="Enable safe replay mode (block state-changing requests)",
     ),
     safe_mode: str = typer.Option(
         "block",
@@ -428,7 +437,9 @@ def replay_session(
         "live": SafeReplayMode.LIVE,
     }
     replay_mode = (
-        mode_map.get(safe_mode.lower(), SafeReplayMode.BLOCK) if safe else SafeReplayMode.LIVE
+        mode_map.get(safe_mode.lower(), SafeReplayMode.BLOCK)
+        if safe
+        else SafeReplayMode.LIVE
     )
 
     if safe:
@@ -487,7 +498,9 @@ def replay_session(
             if safe_controller:
                 report = safe_controller.get_report()
                 if report["blocked_count"] > 0:
-                    typer.echo(f"\nSafe replay blocked {report['blocked_count']} requests")
+                    typer.echo(
+                        f"\nSafe replay blocked {report['blocked_count']} requests"
+                    )
 
             await browser.close()
             return success, failed
@@ -504,7 +517,9 @@ def import_session(
     source_file: Path = typer.Argument(
         ..., help="Path to session.json from Chrome extension export"
     ),
-    output_dir: Path = typer.Option(Path("sessions"), "--output", "-o", help="Output directory"),
+    output_dir: Path = typer.Option(
+        Path("sessions"), "--output", "-o", help="Output directory"
+    ),
 ) -> None:
     """Import a recording session from Chrome extension export.
 
@@ -555,6 +570,81 @@ def import_session(
     typer.echo(f"  Source: {session.metadata.source_url}")
     if session.metadata.video:
         typer.echo(f"  Video: {session.metadata.video.path}")
+
+
+@app.command(name="convert-session")
+def convert_session(
+    session_path: Path = typer.Argument(
+        ..., help="Path to session.json or session directory"
+    ),
+    description: str = typer.Option(
+        ...,
+        "--description",
+        "-d",
+        help="Describe what this workflow does (e.g., 'Login and add items to cart')",
+    ),
+) -> None:
+    """Convert a recording session to an action definition using LLM analysis.
+
+    Reads a session JSON file (from Chrome extension) and uses an LLM to:
+    - Extract variable parameters (usernames, passwords, etc.)
+    - Collapse verbose events into logical steps
+    - Generate a clean, parameterized action definition
+
+    The action is saved to sessions/{id}/processed/workflow.json
+
+    Examples:
+        browser-agents convert-session sessions/sess_abc123 -d "Login and add items to cart"
+        browser-agents convert-session ~/Downloads/session.json -d "Search for products"
+    """
+    from browser_agents.converter import (
+        convert_session_to_action,
+        load_session,
+        save_action_definition,
+    )
+
+    # Handle both directory and file paths
+    if session_path.is_dir():
+        session_file = session_path / "session.json"
+        session_dir = session_path
+    else:
+        session_file = session_path
+        session_dir = session_path.parent
+
+    if not session_file.exists():
+        typer.echo(f"Session not found: {session_file}", err=True)
+        raise typer.Exit(1)
+
+    # Load session
+    typer.echo(f"Loading session: {session_file}")
+    try:
+        session = load_session(session_file)
+    except Exception as e:
+        typer.echo(f"Failed to load session: {e}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Found {len(session.events)} events from {session.metadata.source_url}")
+    typer.echo(f"Intent: {description}")
+    typer.echo("Converting to action definition...")
+
+    # Convert using LLM
+    result = asyncio.run(convert_session_to_action(session, description=description))
+
+    if isinstance(result, str):
+        # Error string returned
+        typer.echo(f"Conversion failed: {result}", err=True)
+        raise typer.Exit(1)
+
+    # Success - save action definition
+    output_path = save_action_definition(result, session_dir)
+
+    # Sanitize description for Windows console encoding
+    safe_desc = result.description.encode("ascii", "replace").decode("ascii")
+    typer.echo(f"\nCreated action: {result.name}")
+    typer.echo(f"Description: {safe_desc}")
+    typer.echo(f"Parameters: {len(result.parameters)}")
+    typer.echo(f"Steps: {len(result.steps)}")
+    typer.echo(f"Saved to: {output_path}")
 
 
 @app.command(name="list-sessions")

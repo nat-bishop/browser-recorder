@@ -62,7 +62,9 @@ class TestSelectorCandidate:
         assert selector.strategy == "css"
         assert selector.confidence == "low"
 
-    @pytest.mark.parametrize("strategy", ["role", "label", "placeholder", "text", "testid", "css"])
+    @pytest.mark.parametrize(
+        "strategy", ["role", "label", "placeholder", "text", "testid", "css"]
+    )
     def test_all_valid_strategies(self, strategy: str) -> None:
         """All defined selector strategies are accepted."""
         selector = SelectorCandidate(
@@ -131,9 +133,15 @@ class TestUIEvent:
             url="https://example.com",
             selectors=[
                 SelectorCandidate(
-                    strategy="role", value="button", confidence="high", role="button", name="Submit"
+                    strategy="role",
+                    value="button",
+                    confidence="high",
+                    role="button",
+                    name="Submit",
                 ),
-                SelectorCandidate(strategy="testid", value="submit-btn", confidence="high"),
+                SelectorCandidate(
+                    strategy="testid", value="submit-btn", confidence="high"
+                ),
                 SelectorCandidate(strategy="css", value="#submit", confidence="low"),
             ],
             element_type="button",
@@ -155,7 +163,9 @@ class TestUIEvent:
             relative_time_ms=2000,
             event_type=UIEventType.TYPE,
             url="https://example.com",
-            selectors=[SelectorCandidate(strategy="label", value="Email", confidence="high")],
+            selectors=[
+                SelectorCandidate(strategy="label", value="Email", confidence="high")
+            ],
             element_type="input",
             input_type="email",
             placeholder="Enter your email",
@@ -250,7 +260,11 @@ class TestUIEvent:
             url="https://example.com",
             selectors=[
                 SelectorCandidate(
-                    strategy="role", value="button", confidence="high", role="button", name="Submit"
+                    strategy="role",
+                    value="button",
+                    confidence="high",
+                    role="button",
+                    name="Submit",
                 ),
             ],
             element_type="button",
@@ -324,7 +338,11 @@ class TestRecordingSession:
                     relative_time_ms=1000,
                     event_type=UIEventType.CLICK,
                     url="https://example.com",
-                    selectors=[SelectorCandidate(strategy="css", value="#btn", confidence="low")],
+                    selectors=[
+                        SelectorCandidate(
+                            strategy="css", value="#btn", confidence="low"
+                        )
+                    ],
                 ),
             ],
         )
@@ -454,9 +472,14 @@ class TestActionDefinition:
             name="login",
             description="Log into the site",
             parameters=[
-                ActionParameter(name="email", description="Email", example="test@example.com"),
                 ActionParameter(
-                    name="password", description="Password", example="secret123", is_sensitive=True
+                    name="email", description="Email", example="test@example.com"
+                ),
+                ActionParameter(
+                    name="password",
+                    description="Password",
+                    example="secret123",
+                    is_sensitive=True,
                 ),
             ],
             steps=[
@@ -472,7 +495,11 @@ class TestActionDefinition:
                     value="{password}",
                     description="Enter password",
                 ),
-                ActionStep(action=StepAction.click, target="#login-btn", description="Click login"),
+                ActionStep(
+                    action=StepAction.click,
+                    target="#login-btn",
+                    description="Click login",
+                ),
             ],
             domains=["example.com"],
         )
@@ -487,7 +514,9 @@ class TestActionDefinition:
             name="test",
             description="Test action",
             parameters=[],
-            steps=[ActionStep(action=StepAction.click, target="#btn", description="Click")],
+            steps=[
+                ActionStep(action=StepAction.click, target="#btn", description="Click")
+            ],
             domains=["example.com"],
         )
         json_str = original.model_dump_json()

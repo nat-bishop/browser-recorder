@@ -29,7 +29,9 @@ class StepAction(str, Enum):
 class ActionParameter(BaseModel):
     """A parameter extracted from a recording for action substitution."""
 
-    name: str = Field(description="Parameter name in snake_case (e.g., 'username', 'email')")
+    name: str = Field(
+        description="Parameter name in snake_case (e.g., 'username', 'email')"
+    )
     description: str = Field(description="What this parameter represents")
     example: str = Field(description="Example value extracted from the recording")
     is_sensitive: bool = Field(
@@ -43,9 +45,12 @@ class ActionStep(BaseModel):
     action: StepAction = Field(
         description="Action type: navigate, click, type, select, scroll, wait"
     )
-    target: str | None = Field(default=None, description="CSS selector or URL for the action")
+    target: str | None = Field(
+        default=None, description="CSS selector or URL for the action"
+    )
     value: str | None = Field(
-        default=None, description="Value with {param_name} placeholders for substitution"
+        default=None,
+        description="Value with {param_name} placeholders for substitution",
     )
     description: str = Field(description="Human-readable description of this step")
     # Fallback data for selector resilience
@@ -71,12 +76,17 @@ class ActionDefinition(BaseModel):
     - Domain restrictions for safety
     """
 
-    name: str = Field(description="Action name in snake_case (e.g., 'checkout_flow', 'login_user')")
+    name: str = Field(
+        description="Action name in snake_case (e.g., 'checkout_flow', 'login_user')"
+    )
     description: str = Field(description="What this action accomplishes")
     parameters: list[ActionParameter] = Field(
-        default_factory=list, description="Extracted variable parameters for substitution"
+        default_factory=list,
+        description="Extracted variable parameters for substitution",
     )
-    steps: list[ActionStep] = Field(description="Ordered steps to execute (typically 3-10)")
+    steps: list[ActionStep] = Field(
+        description="Ordered steps to execute (typically 3-10)"
+    )
     domains: list[str] = Field(description="Allowed domains for safety validation")
 
 
@@ -96,7 +106,8 @@ class ProposedFix(BaseModel):
         default=None, description="New CSS selector to use (must exist in page HTML)"
     )
     new_action: str | None = Field(
-        default=None, description="New action type if changing (e.g., 'select' instead of 'type')"
+        default=None,
+        description="New action type if changing (e.g., 'select' instead of 'type')",
     )
     new_value: str | None = Field(default=None, description="New value if changing")
     confidence: Literal["high", "medium", "low"] = Field(
@@ -113,7 +124,9 @@ class ErrorDiagnosis(BaseModel):
         description="Error category: conversion (LLM generated wrong step), "
         "execution (step correct but failed), verification (step ran, wrong result)"
     )
-    explanation: str = Field(description="Plain-language explanation of what went wrong")
+    explanation: str = Field(
+        description="Plain-language explanation of what went wrong"
+    )
     suggestion: str = Field(description="What the user should do to fix it")
     likely_cause: str = Field(description="Assessment of the root cause")
     proposed_fix: ProposedFix | None = Field(
@@ -129,10 +142,16 @@ class StepFixSuggestion(BaseModel):
         description="What to do: delete (remove step), modify (change it), keep (retry as-is)"
     )
     explanation: str = Field(description="Why this fix was suggested")
-    new_action: str | None = Field(default=None, description="New action type (if modifying)")
-    new_target: str | None = Field(default=None, description="New target selector (if modifying)")
+    new_action: str | None = Field(
+        default=None, description="New action type (if modifying)"
+    )
+    new_target: str | None = Field(
+        default=None, description="New target selector (if modifying)"
+    )
     new_value: str | None = Field(default=None, description="New value (if modifying)")
-    new_description: str | None = Field(default=None, description="New description (if modifying)")
+    new_description: str | None = Field(
+        default=None, description="New description (if modifying)"
+    )
 
 
 # =============================================================================

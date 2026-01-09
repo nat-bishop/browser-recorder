@@ -26,5 +26,9 @@ class SelectorCandidate(BaseModel):
     )
 
     # Role-specific fields (only used when strategy="role")
-    role: str | None = Field(default=None, description="ARIA role (button, textbox, link, etc.)")
-    name: str | None = Field(default=None, description="Accessible name for role-based selectors")
+    role: str | None = Field(
+        default=None, description="ARIA role (button, textbox, link, etc.)"
+    )
+    name: str | None = Field(
+        default=None, description="Accessible name for role-based selectors"
+    )

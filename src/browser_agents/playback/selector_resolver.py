@@ -33,8 +33,6 @@ class SelectorResolver:
             page: The Playwright page to resolve selectors against.
         """
         self.page = page
-        self._last_used_selector: SelectorCandidate | None = None
-        self._last_locator: Locator | None = None
 
     async def resolve(self, event: UIEvent) -> Locator | None:
         """Resolve an event's selectors to a working locator.
@@ -63,8 +61,6 @@ class SelectorResolver:
 
                 if count == 1:
                     # Found exactly one element - success!
-                    self._last_used_selector = candidate
-                    self._last_locator = locator
                     return locator
                 if count > 1:
                     # Multiple matches - try next selector
@@ -75,8 +71,6 @@ class SelectorResolver:
                 continue
 
         # All selectors failed
-        self._last_used_selector = None
-        self._last_locator = None
         return None
 
     def _get_frame_context(self, event: UIEvent) -> Page:
@@ -103,34 +97,6 @@ class SelectorResolver:
                     return frame  # type: ignore[return-value]
 
         return self.page
-
-    async def resolve_selectors(
-        self, selectors: list[SelectorCandidate]
-    ) -> Locator | None:
-        """Resolve a list of selector candidates to a working locator.
-
-        Args:
-            selectors: List of SelectorCandidate to try in order.
-
-        Returns:
-            A Playwright Locator if successful, None otherwise.
-        """
-        for candidate in selectors:
-            try:
-                locator = self._to_locator(candidate)
-                count = await locator.count()
-
-                if count == 1:
-                    self._last_used_selector = candidate
-                    self._last_locator = locator
-                    return locator
-            except Exception:
-                continue
-
-        # Reset tracking on failure (match resolve() behavior)
-        self._last_used_selector = None
-        self._last_locator = None
-        return None
 
     def _to_locator(
         self, selector: SelectorCandidate, context: Page | None = None
@@ -175,13 +141,3 @@ class SelectorResolver:
 
             case _:
                 raise ValueError(f"Unknown selector strategy: {selector.strategy}")
-
-    @property
-    def last_used_selector(self) -> SelectorCandidate | None:
-        """Get the last selector that successfully resolved."""
-        return self._last_used_selector
-
-    @property
-    def last_locator(self) -> Locator | None:
-        """Get the last locator that was successfully created."""
-        return self._last_locator

@@ -1,14 +1,11 @@
 """Convert raw browser recordings to ActionDefinitions using LLM analysis.
 
 This module handles:
-1. Loading sessions from JSON files (new RecordingSession format)
+1. Loading sessions from JSON files (RecordingSession format)
 2. Event preprocessing (collapsing noise, selecting best selectors)
 3. Prompt loading from YAML
 4. LLM invocation with structured output
 5. Saving processed workflows
-
-Supports both new RecordingSession format (from Chrome extension)
-and legacy Workflow format for backward compatibility.
 """
 
 import json
@@ -347,91 +344,3 @@ async def convert_session_to_action(
         return f"LLM connection failed: {e}"
     except json.JSONDecodeError as e:
         return f"Invalid JSON in session: {e}"
-
-
-# =============================================================================
-# Legacy support for old Workflow format
-# =============================================================================
-
-# Re-export for backward compatibility
-try:
-    from browser_agents.models import Workflow
-
-    def load_workflow(path: Path) -> Workflow:
-        """Load a legacy workflow from a JSON file (deprecated).
-
-        Use load_session() for new RecordingSession format.
-        """
-        with path.open(encoding="utf-8") as f:
-            content = f.read()
-
-        if not content.strip():
-            raise ValueError(f"Workflow file is empty: {path}")
-
-        return Workflow.model_validate_json(content)
-
-    def save_workflow(workflow: Workflow, path: Path) -> None:
-        """Save a legacy workflow to a JSON file (deprecated)."""
-        with path.open("w", encoding="utf-8") as f:
-            f.write(workflow.model_dump_json(indent=2))
-
-    async def convert_workflow_to_action(
-        workflow: Workflow,
-        description: str,
-        max_retries: int = 2,
-    ) -> ActionDefinition | str:
-        """Convert a legacy workflow to ActionDefinition (deprecated).
-
-        Use convert_session_to_action() for new RecordingSession format.
-        """
-        # Convert legacy events to preprocessing format
-        events_dict = []
-        for event in workflow.events:
-            event_dict = {
-                k: v
-                for k, v in event.model_dump().items()
-                if v is not None and k != "timestamp"
-            }
-            events_dict.append(event_dict)
-
-        # Use shared LLM logic
-        try:
-            prompts = load_prompt("convert_recording")
-            events_content = prompts["user_template"].format(
-                start_url=workflow.source_url,
-                event_count=len(events_dict),
-                events_json=json.dumps(events_dict, indent=2),
-            )
-
-            messages: list[tuple[str, str]] = [
-                ("system", prompts["system_prompt"]),
-                ("user", f"I want to create a workflow that: {description}"),
-                ("user", events_content),
-            ]
-
-            llm = get_structured_llm(ActionDefinition)
-            retryable = llm.with_retry(
-                retry_if_exception_type=(ConnectionError, TimeoutError),
-                stop_after_attempt=max_retries,
-            )
-            result = await retryable.ainvoke(messages)
-
-            if result is None:
-                return "LLM returned empty response"
-            if not isinstance(result, ActionDefinition):
-                return f"Unexpected response type: {type(result).__name__}"
-            if not result.name or not result.steps:
-                return "LLM returned incomplete ActionDefinition"
-
-            return result
-
-        except FileNotFoundError as e:
-            return f"Prompt file not found: {e}"
-        except ValueError as e:
-            return f"Invalid prompt format: {e}"
-        except (ConnectionError, TimeoutError) as e:
-            return f"LLM connection failed: {e}"
-
-except ImportError:
-    # Old models not available, legacy functions not defined
-    pass

@@ -221,10 +221,7 @@ def load_prompt(prompt_name: str = "convert_session") -> dict[str, str]:
         FileNotFoundError: If prompt file doesn't exist.
         ValueError: If prompt file has invalid format.
     """
-    # Try new prompt first, fall back to old
     prompt_path = PROMPTS_DIR / f"{prompt_name}.yaml"
-    if not prompt_path.exists():
-        prompt_path = PROMPTS_DIR / "convert_recording.yaml"
 
     with prompt_path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f)

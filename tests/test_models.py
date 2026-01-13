@@ -14,85 +14,11 @@ from browser_agents.models import (
     ActionParameter,
     ActionStep,
     RecordingSession,
-    SelectorCandidate,
     SessionMetadata,
     StepAction,
     UIEvent,
     UIEventType,
 )
-
-
-class TestSelectorCandidate:
-    """Tests for SelectorCandidate model."""
-
-    def test_role_selector(self) -> None:
-        """Role selector with name is valid."""
-        selector = SelectorCandidate(
-            strategy="role",
-            value='role=button[name="Submit"]',
-            confidence="high",
-            role="button",
-            name="Submit",
-        )
-        assert selector.strategy == "role"
-        assert selector.role == "button"
-        assert selector.name == "Submit"
-        assert selector.confidence == "high"
-
-    def test_label_selector(self) -> None:
-        """Label selector is valid."""
-        selector = SelectorCandidate(
-            strategy="label",
-            value="Email",
-            confidence="high",
-        )
-        assert selector.strategy == "label"
-        assert selector.value == "Email"
-
-    def test_css_selector(self) -> None:
-        """CSS selector (fallback) is valid."""
-        selector = SelectorCandidate(
-            strategy="css",
-            value="#submit-btn",
-            confidence="low",
-        )
-        assert selector.strategy == "css"
-        assert selector.confidence == "low"
-
-    @pytest.mark.parametrize(
-        "strategy", ["role", "label", "placeholder", "text", "testid", "css"]
-    )
-    def test_all_valid_strategies(self, strategy: str) -> None:
-        """All defined selector strategies are accepted."""
-        selector = SelectorCandidate(
-            strategy=strategy,  # type: ignore[arg-type]
-            value="test",
-            confidence="medium",
-        )
-        assert selector.strategy == strategy
-
-    def test_invalid_strategy_rejected(self) -> None:
-        """Invalid strategy raises ValidationError."""
-        with pytest.raises(ValidationError) as exc_info:
-            SelectorCandidate(
-                strategy="invalid",  # type: ignore[arg-type]
-                value="test",
-                confidence="medium",
-            )
-        assert "strategy" in str(exc_info.value)
-
-    def test_serialization_roundtrip(self) -> None:
-        """SelectorCandidate can be serialized to JSON and back."""
-        original = SelectorCandidate(
-            strategy="role",
-            value='role=button[name="Submit"]',
-            confidence="high",
-            role="button",
-            name="Submit",
-        )
-        json_str = original.model_dump_json()
-        restored = SelectorCandidate.model_validate_json(json_str)
-        assert restored == original
 
 
 class TestUIEventType:
@@ -120,37 +46,20 @@ class TestUIEventType:
 class TestUIEvent:
     """Tests for UIEvent model."""
 
-    def test_click_event_with_selectors(self) -> None:
-        """Click event with multiple selectors is valid."""
+    def test_click_event_with_selector(self) -> None:
+        """Click event with selector is valid."""
         event = UIEvent(
             id="evt_001",
             timestamp=datetime.now(UTC),
             relative_time_ms=1000,
             event_type=UIEventType.CLICK,
             url="https://example.com",
-            selectors=[
-                SelectorCandidate(
-                    strategy="role",
-                    value="button",
-                    confidence="high",
-                    role="button",
-                    name="Submit",
-                ),
-                SelectorCandidate(
-                    strategy="testid", value="submit-btn", confidence="high"
-                ),
-                SelectorCandidate(strategy="css", value="#submit", confidence="low"),
-            ],
+            selector='role=button[name="Submit"]',
             element_type="button",
             element_text="Submit",
-            x=100,
-            y=200,
         )
         assert event.event_type == UIEventType.CLICK
-        assert len(event.selectors) == 3
-        assert event.selectors[0].strategy == "role"
-        assert event.x == 100
-        assert event.y == 200
+        assert event.selector == 'role=button[name="Submit"]'
 
     def test_type_event(self) -> None:
         """Type event with value is valid."""
@@ -160,9 +69,7 @@ class TestUIEvent:
             relative_time_ms=2000,
             event_type=UIEventType.TYPE,
             url="https://example.com",
-            selectors=[
-                SelectorCandidate(strategy="label", value="Email", confidence="high")
-            ],
+            selector="label=Email",
             element_type="input",
             input_type="email",
             placeholder="Enter your email",
@@ -180,7 +87,6 @@ class TestUIEvent:
             relative_time_ms=0,
             event_type=UIEventType.NAVIGATE,
             url="https://example.com/page",
-            selectors=[],
         )
         assert event.event_type == UIEventType.NAVIGATE
         assert event.url == "https://example.com/page"
@@ -193,7 +99,6 @@ class TestUIEvent:
             relative_time_ms=3000,
             event_type=UIEventType.SCROLL,
             url="https://example.com",
-            selectors=[],
             scroll_x=0,
             scroll_y=500,
         )
@@ -207,7 +112,6 @@ class TestUIEvent:
             relative_time_ms=4000,
             event_type=UIEventType.KEY_PRESS,
             url="https://example.com",
-            selectors=[],
             key="Enter",
         )
         assert event.event_type == UIEventType.KEY_PRESS
@@ -221,7 +125,6 @@ class TestUIEvent:
             relative_time_ms=5000,
             event_type=UIEventType.CLICK,
             url="https://example.com",
-            selectors=[],
             frame_type="iframe",
             frame_src="https://iframe.example.com/content",
         )
@@ -236,7 +139,6 @@ class TestUIEvent:
             relative_time_ms=0,
             event_type=UIEventType.CLICK,
             url="https://example.com",
-            selectors=[],
         )
         assert event.frame_type == "main"
 
@@ -255,24 +157,14 @@ class TestUIEvent:
             relative_time_ms=1000,
             event_type=UIEventType.CLICK,
             url="https://example.com",
-            selectors=[
-                SelectorCandidate(
-                    strategy="role",
-                    value="button",
-                    confidence="high",
-                    role="button",
-                    name="Submit",
-                ),
-            ],
+            selector='role=button[name="Submit"]',
             element_type="button",
-            x=100,
-            y=200,
         )
         json_str = original.model_dump_json()
         restored = UIEvent.model_validate_json(json_str)
         assert restored.id == original.id
         assert restored.event_type == original.event_type
-        assert len(restored.selectors) == 1
+        assert restored.selector == original.selector
 
 
 class TestSessionMetadata:
@@ -327,7 +219,6 @@ class TestRecordingSession:
                     relative_time_ms=0,
                     event_type=UIEventType.NAVIGATE,
                     url="https://example.com",
-                    selectors=[],
                 ),
                 UIEvent(
                     id="evt_002",
@@ -335,11 +226,7 @@ class TestRecordingSession:
                     relative_time_ms=1000,
                     event_type=UIEventType.CLICK,
                     url="https://example.com",
-                    selectors=[
-                        SelectorCandidate(
-                            strategy="css", value="#btn", confidence="low"
-                        )
-                    ],
+                    selector="#btn",
                 ),
             ],
         )
@@ -384,7 +271,6 @@ class TestRecordingSession:
                     relative_time_ms=0,
                     event_type=UIEventType.NAVIGATE,
                     url="https://example.com",
-                    selectors=[],
                 ),
             ],
         )
@@ -519,3 +405,60 @@ class TestActionDefinition:
         json_str = original.model_dump_json()
         restored = ActionDefinition.model_validate_json(json_str)
         assert restored.name == original.name
+
+
+class TestNetworkRequest:
+    """Tests for NetworkRequest model."""
+
+    def test_minimal_request(self) -> None:
+        """Minimal NetworkRequest with required fields only."""
+        from browser_agents.models import NetworkRequest
+
+        req = NetworkRequest(
+            timestamp=datetime.now(UTC),
+            method="GET",
+            url="https://example.com",
+        )
+        assert req.method == "GET"
+        assert req.url == "https://example.com"
+        assert req.request_headers == {}
+        assert req.response_headers == {}
+        assert req.status is None
+
+    def test_full_request(self) -> None:
+        """NetworkRequest with all fields populated."""
+        from browser_agents.models import NetworkRequest
+
+        req = NetworkRequest(
+            timestamp=datetime.now(UTC),
+            method="POST",
+            url="https://api.example.com/data",
+            status=200,
+            status_text="OK",
+            duration_ms=150.5,
+            mime_type="application/json",
+            request_headers={"Content-Type": "application/json"},
+            response_headers={"X-Request-Id": "abc123"},
+            request_body_size=100,
+            response_body_size=500,
+        )
+        assert req.status == 200
+        assert req.status_text == "OK"
+        assert req.duration_ms == 150.5
+        assert req.mime_type == "application/json"
+        assert req.request_headers["Content-Type"] == "application/json"
+
+    def test_serialization_roundtrip(self) -> None:
+        """NetworkRequest can be serialized to JSON and back."""
+        from browser_agents.models import NetworkRequest
+
+        original = NetworkRequest(
+            timestamp=datetime.now(UTC),
+            method="GET",
+            url="https://example.com",
+            status=200,
+        )
+        json_str = original.model_dump_json()
+        restored = NetworkRequest.model_validate_json(json_str)
+        assert restored.url == original.url
+        assert restored.status == original.status

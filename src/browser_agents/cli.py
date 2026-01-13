@@ -22,6 +22,17 @@ app = typer.Typer(
 )
 
 
+def _normalize_session_path(session_path: Path) -> Path:
+    """Convert directory or file path to session.json file path."""
+    return session_path / "session.json" if session_path.is_dir() else session_path
+
+
+def _create_session_directories(session_dir: Path) -> None:
+    """Create session and media directories."""
+    session_dir.mkdir(parents=True, exist_ok=True)
+    (session_dir / "media").mkdir(exist_ok=True)
+
+
 @app.command(name="replay-session")
 def replay_session(
     session_path: Path = typer.Argument(
@@ -62,6 +73,7 @@ def replay_session(
         browser-agents replay-session sessions/sess_abc123 --safe --mode warn
         browser-agents replay-session sessions/sess_abc123 --trace
     """
+    from browser_agents.models import UIEvent
     from browser_agents.playback import (
         PlaybackError,
         SafeReplayController,
@@ -70,17 +82,12 @@ def replay_session(
     )
     from browser_agents.storage import SessionStore
 
-    # Handle both directory and file paths
-    if session_path.is_dir():
-        session_file = session_path / "session.json"
-    else:
-        session_file = session_path
-
+    # Normalize path and load session
+    session_file = _normalize_session_path(session_path)
     if not session_file.exists():
         typer.echo(f"Session not found: {session_file}", err=True)
         raise typer.Exit(1)
 
-    # Load session
     store = SessionStore(session_file.parent.parent)
     session_id = session_file.parent.name
     try:
@@ -93,7 +100,7 @@ def replay_session(
     typer.echo(f"Events: {len(session.events)}")
     typer.echo(f"Source: {session.metadata.source_url}")
 
-    # Parse safe mode
+    # Determine safe replay mode
     mode_map = {
         "block": SafeReplayMode.BLOCK,
         "warn": SafeReplayMode.WARN,
@@ -109,28 +116,21 @@ def replay_session(
     if safe:
         typer.echo(f"Safe mode: {replay_mode.value}")
 
+    # Determine trace path
+    trace_path = session_file.parent / "replay_trace.zip" if trace else None
+    if trace_path:
+        typer.echo(f"Tracing enabled: {trace_path}")
+
     # Progress callback
-    def on_event(event: "UIEvent", index: int, total: int) -> None:
+    def on_event(event: UIEvent, index: int, total: int) -> None:
         detail = ""
-        if event.selectors:
-            detail = event.selectors[0].value[:40]
+        if event.selector:
+            detail = event.selector[:40]
         elif event.value:
             detail = event.value[:40]
         elif event.url:
             detail = event.url[:40]
         typer.echo(f"  [{index + 1}/{total}] {event.event_type.value}: {detail}")
-
-    # Need to import here to avoid circular import issues
-    from browser_agents.models import UIEvent
-
-    # Determine trace output path
-    trace_path: Path | None = None
-    if trace:
-        if session_path.is_dir():
-            trace_path = session_path / "replay_trace.zip"
-        else:
-            trace_path = session_path.parent / "replay_trace.zip"
-        typer.echo(f"Tracing enabled: {trace_path}")
 
     async def run_replay() -> tuple[int, int]:
         from playwright.async_api import async_playwright
@@ -141,7 +141,7 @@ def replay_session(
             page = await context.new_page()
 
             # Start tracing if enabled
-            if trace:
+            if trace_path:
                 await context.tracing.start(screenshots=True, snapshots=True)
 
             success = 0
@@ -156,10 +156,8 @@ def replay_session(
                 # Navigate to start URL
                 await page.goto(session.metadata.source_url)
 
-                # Create executor
+                # Create executor and replay events
                 executor = SessionExecutor(page, delay_ms=delay, on_event=on_event)
-
-                # Replay
                 for i, event in enumerate(session.events):
                     try:
                         on_event(event, i, len(session.events))
@@ -181,12 +179,13 @@ def replay_session(
                         )
             finally:
                 # Stop tracing and save (even on error)
-                if trace and trace_path:
+                if trace_path:
                     await context.tracing.stop(path=str(trace_path))
                     typer.echo(f"\nTrace saved to: {trace_path}")
                     typer.echo(f"View with: npx playwright show-trace {trace_path}")
 
-            await browser.close()
+                await browser.close()
+
             return success, failed
 
     success, failed = asyncio.run(run_replay())
@@ -227,12 +226,9 @@ def import_session(
         typer.echo(f"Invalid session file: {e}", err=True)
         raise typer.Exit(1)
 
-    # Create session directory
+    # Create session and media directories
     session_dir = output_dir / session.metadata.id
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create media directory
-    (session_dir / "media").mkdir(exist_ok=True)
+    _create_session_directories(session_dir)
 
     # Copy video if present and exists
     if session.metadata.video:
@@ -274,6 +270,8 @@ def import_trace_cmd(
         browser-agents import-trace ~/Downloads/trace.zip
         browser-agents import-trace recording.zip -o ./my-sessions
     """
+    import shutil
+
     from browser_agents.importers.trace_importer import import_trace
 
     if not trace_path.exists():
@@ -295,12 +293,13 @@ def import_trace_cmd(
     if not session.events:
         typer.echo("Warning: No events found in trace", err=True)
 
-    # Create session directory
+    # Create session and media directories
     session_dir = output_dir / session.metadata.id
-    session_dir.mkdir(parents=True, exist_ok=True)
+    _create_session_directories(session_dir)
 
-    # Create media directory
-    (session_dir / "media").mkdir(exist_ok=True)
+    # Copy original trace.zip to session folder
+    trace_dest = session_dir / "trace.zip"
+    shutil.copy(trace_path, trace_dest)
 
     # Save session
     output_file = session_dir / "session.json"
@@ -309,7 +308,193 @@ def import_trace_cmd(
     typer.echo(f"Imported session to: {session_dir}")
     typer.echo(f"  ID: {session.metadata.id}")
     typer.echo(f"  Events: {len(session.events)}")
+    typer.echo(f"  Network requests: {len(session.network_requests)}")
     typer.echo(f"  Source: {session.metadata.source_url}")
+    typer.echo(f"  Trace: {trace_dest}")
+
+
+@app.command(name="record")
+def record(
+    port: int = typer.Option(9222, "--port", "-p", help="Chrome debugging port"),
+    output: Path = typer.Option(
+        Path("recording_trace.zip"), "--output", "-o", help="Output trace file path"
+    ),
+    auto_import: bool = typer.Option(
+        True, "--import/--no-import", help="Automatically import trace to sessions"
+    ),
+    output_dir: Path = typer.Option(
+        Path("sessions"), "--sessions", "-s", help="Sessions directory for import"
+    ),
+) -> None:
+    """Record browser actions via Chrome DevTools Protocol.
+
+    Connects to a running Chrome instance, starts tracing, waits for you to
+    perform actions, then saves the trace when you press Enter.
+
+    Prerequisites:
+        Launch Chrome with: chrome --remote-debugging-port=9222
+        Or use: browser-agents launch-chrome
+
+    Examples:
+        browser-agents record
+        browser-agents record --port 9223
+        browser-agents record -o my_trace.zip --no-import
+    """
+    import shutil
+
+    from browser_agents.importers.trace_importer import import_trace
+
+    async def record_impl() -> None:
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as p:
+            typer.echo(f"Connecting to Chrome on port {port}...")
+            try:
+                browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
+            except Exception as e:
+                typer.echo(f"Failed to connect to Chrome: {e}", err=True)
+                typer.echo(
+                    "\nMake sure Chrome is running with --remote-debugging-port=9222"
+                )
+                typer.echo("Or run: browser-agents launch-chrome")
+                raise typer.Exit(1)
+
+            contexts = browser.contexts
+            if not contexts:
+                typer.echo("No browser contexts found. Open a tab in Chrome first.")
+                raise typer.Exit(1)
+
+            context = contexts[0]
+            try:
+                typer.echo("Starting trace recording...")
+                await context.tracing.start(
+                    screenshots=True, snapshots=True, sources=True
+                )
+
+                typer.echo("\n" + "=" * 50)
+                typer.echo("RECORDING - Perform your actions in the browser")
+                typer.echo("=" * 50)
+                typer.echo("\nPress ENTER when done to stop recording...")
+
+                # Wait for user input (blocking)
+                await asyncio.get_event_loop().run_in_executor(None, input)
+
+                typer.echo(f"\nStopping trace and saving to: {output}")
+                await context.tracing.stop(path=str(output))
+            finally:
+                await browser.disconnect()
+
+    asyncio.run(record_impl())
+
+    typer.echo(f"Recording saved: {output}")
+
+    if auto_import:
+        typer.echo("\nImporting trace...")
+        try:
+            session = import_trace(output)
+        except Exception as e:
+            typer.echo(f"Failed to import trace: {e}", err=True)
+            typer.echo("Trace file saved but not imported.")
+            return
+
+        session_dir = output_dir / session.metadata.id
+        _create_session_directories(session_dir)
+
+        # Copy trace to session folder
+        trace_dest = session_dir / "trace.zip"
+        shutil.copy(output, trace_dest)
+
+        # Save session
+        session_file = session_dir / "session.json"
+        session_file.write_text(session.model_dump_json(indent=2), encoding="utf-8")
+
+        typer.echo(f"Imported session to: {session_dir}")
+        typer.echo(f"  ID: {session.metadata.id}")
+        typer.echo(f"  Events: {len(session.events)}")
+        typer.echo(f"  Network requests: {len(session.network_requests)}")
+        typer.echo(f"  Source: {session.metadata.source_url}")
+
+
+@app.command(name="launch-chrome")
+def launch_chrome(
+    port: int = typer.Option(9222, "--port", "-p", help="Debugging port"),
+    url: str = typer.Option("about:blank", "--url", "-u", help="Initial URL to open"),
+) -> None:
+    """Launch Chrome with remote debugging enabled.
+
+    Finds Chrome on the system and launches it with --remote-debugging-port
+    so that the record command can connect to it.
+
+    Examples:
+        browser-agents launch-chrome
+        browser-agents launch-chrome --url https://example.com
+        browser-agents launch-chrome --port 9223
+    """
+    import subprocess
+    import sys
+
+    # Find Chrome executable
+    chrome_paths = []
+    if sys.platform == "win32":
+        chrome_paths = [
+            Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+            Path(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"),
+            Path.home()
+            / "AppData"
+            / "Local"
+            / "Google"
+            / "Chrome"
+            / "Application"
+            / "chrome.exe",
+        ]
+    elif sys.platform == "darwin":
+        chrome_paths = [
+            Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        ]
+    else:  # Linux
+        chrome_paths = [
+            Path("/usr/bin/google-chrome"),
+            Path("/usr/bin/google-chrome-stable"),
+            Path("/usr/bin/chromium"),
+            Path("/usr/bin/chromium-browser"),
+        ]
+
+    chrome_exe = None
+    for path in chrome_paths:
+        if path.exists():
+            chrome_exe = path
+            break
+
+    if chrome_exe is None:
+        typer.echo("Chrome not found. Please install Chrome or specify path.", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"Launching Chrome with debugging port {port}...")
+    typer.echo(f"  Executable: {chrome_exe}")
+
+    cmd = [
+        str(chrome_exe),
+        f"--remote-debugging-port={port}",
+        "--user-data-dir=" + str(Path.home() / ".browser-agents" / "chrome-profile"),
+        url,
+    ]
+
+    # Launch Chrome in background
+    try:
+        if sys.platform == "win32":
+            subprocess.Popen(
+                cmd,
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+                | subprocess.DETACHED_PROCESS,
+            )
+        else:
+            subprocess.Popen(cmd, start_new_session=True)
+    except OSError as e:
+        typer.echo(f"Failed to launch Chrome: {e}", err=True)
+        raise typer.Exit(1)
+
+    typer.echo("\nChrome launched! Now run:")
+    typer.echo("  browser-agents record")
 
 
 @app.command(name="convert-session")
@@ -343,13 +528,9 @@ def convert_session(
         save_action_definition,
     )
 
-    # Handle both directory and file paths
-    if session_path.is_dir():
-        session_file = session_path / "session.json"
-        session_dir = session_path
-    else:
-        session_file = session_path
-        session_dir = session_path.parent
+    # Normalize path and determine session directory
+    session_file = _normalize_session_path(session_path)
+    session_dir = session_path if session_path.is_dir() else session_path.parent
 
     if not session_file.exists():
         typer.echo(f"Session not found: {session_file}", err=True)

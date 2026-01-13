@@ -38,7 +38,6 @@ def sample_session(sessions_dir: Path) -> Path:
     """
     from browser_agents.models import (
         RecordingSession,
-        SelectorCandidate,
         SessionMetadata,
         UIEvent,
         UIEventType,
@@ -71,20 +70,7 @@ def sample_session(sessions_dir: Path) -> Path:
                 relative_time_ms=1000,
                 event_type=UIEventType.CLICK,
                 url="https://example.com",
-                selectors=[
-                    SelectorCandidate(
-                        strategy="role",
-                        value='role=button[name="Submit"]',
-                        confidence="high",
-                    ),
-                    SelectorCandidate(
-                        strategy="css",
-                        value="#main-button",
-                        confidence="low",
-                    ),
-                ],
-                x=100,
-                y=200,
+                selector='role=button[name="Submit"]',
             ),
         ],
     )
@@ -150,7 +136,6 @@ def sample_session_model() -> "RecordingSession":
     """Create a RecordingSession model for converter tests."""
     from browser_agents.models import (
         RecordingSession,
-        SelectorCandidate,
         SessionMetadata,
         UIEvent,
         UIEventType,
@@ -183,13 +168,7 @@ def sample_session_model() -> "RecordingSession":
                 relative_time_ms=1000,
                 event_type=UIEventType.TYPE,
                 url="https://example.com",
-                selectors=[
-                    SelectorCandidate(
-                        strategy="role",
-                        value='role=textbox[name="Email"]',
-                        confidence="high",
-                    ),
-                ],
+                selector='role=textbox[name="Email"]',
                 value="test@example.com",
             ),
             UIEvent(
@@ -198,13 +177,7 @@ def sample_session_model() -> "RecordingSession":
                 relative_time_ms=2000,
                 event_type=UIEventType.CLICK,
                 url="https://example.com",
-                selectors=[
-                    SelectorCandidate(
-                        strategy="role",
-                        value='role=button[name="Submit"]',
-                        confidence="high",
-                    ),
-                ],
+                selector='role=button[name="Submit"]',
             ),
         ],
     )

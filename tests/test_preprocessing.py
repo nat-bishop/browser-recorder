@@ -6,21 +6,19 @@ before being sent to the LLM.
 
 from datetime import UTC, datetime
 
-from browser_agents.converter import get_best_selector, preprocess_events
-from browser_agents.models import SelectorCandidate, UIEvent, UIEventType
+from browser_agents.converter import preprocess_events
+from browser_agents.models import UIEvent, UIEventType
 
 
 def make_event(
     event_type: str,
-    selectors: list[SelectorCandidate] | None = None,
+    selector: str | None = None,
     value: str | None = None,
     url: str | None = None,
     key: str | None = None,
     element_type: str | None = None,
     element_text: str | None = None,
     element_label: str | None = None,
-    x: int | None = None,
-    y: int | None = None,
     frame_type: str = "main",
 ) -> UIEvent:
     """Helper to create UIEvent for testing."""
@@ -30,74 +28,14 @@ def make_event(
         relative_time_ms=0,
         event_type=UIEventType(event_type),
         url=url or "https://example.com",
-        selectors=selectors or [],
+        selector=selector,
         value=value,
         key=key,
         element_type=element_type,
         element_text=element_text,
         element_label=element_label,
-        x=x,
-        y=y,
         frame_type=frame_type,
     )
-
-
-def css_selector(value: str) -> SelectorCandidate:
-    """Helper to create CSS selector."""
-    return SelectorCandidate(strategy="css", value=value, confidence="low")
-
-
-def role_selector(role: str, name: str) -> SelectorCandidate:
-    """Helper to create role selector."""
-    return SelectorCandidate(
-        strategy="role",
-        value=f'role={role}[name="{name}"]',
-        confidence="high",
-        role=role,
-        name=name,
-    )
-
-
-class TestGetBestSelector:
-    """Tests for get_best_selector function."""
-
-    def test_role_selector_preferred(self) -> None:
-        """Role selector should be preferred over CSS."""
-        selectors = [
-            css_selector("#btn"),
-            role_selector("button", "Submit"),
-        ]
-        result = get_best_selector(selectors)
-        assert result == 'role=button[name="Submit"]'
-
-    def test_high_confidence_preferred_within_same_priority(self) -> None:
-        """High confidence selectors should be preferred within same strategy."""
-        selectors = [
-            SelectorCandidate(strategy="css", value="#low-conf", confidence="low"),
-            SelectorCandidate(strategy="css", value="#high-conf", confidence="high"),
-        ]
-        result = get_best_selector(selectors)
-        assert result == "#high-conf"
-
-    def test_empty_list_returns_none(self) -> None:
-        """Empty selector list should return None."""
-        result = get_best_selector([])
-        assert result is None
-
-    def test_priority_order(self) -> None:
-        """Selectors should follow priority: role > label > placeholder > text > testid > css."""
-        selectors = [
-            SelectorCandidate(strategy="css", value="#id", confidence="low"),
-            SelectorCandidate(strategy="testid", value="test-id", confidence="high"),
-            SelectorCandidate(strategy="text", value="Click", confidence="medium"),
-            SelectorCandidate(
-                strategy="placeholder", value="Enter", confidence="medium"
-            ),
-            SelectorCandidate(strategy="label", value="Email", confidence="high"),
-            role_selector("button", "Submit"),
-        ]
-        result = get_best_selector(selectors)
-        assert result == 'role=button[name="Submit"]'
 
 
 class TestPreprocessEvents:
@@ -106,10 +44,10 @@ class TestPreprocessEvents:
     def test_collapses_consecutive_type_events(self) -> None:
         """Consecutive type events on same selector should be collapsed to final value."""
         events = [
-            make_event("type", [css_selector("#email")], value="t"),
-            make_event("type", [css_selector("#email")], value="te"),
-            make_event("type", [css_selector("#email")], value="tes"),
-            make_event("type", [css_selector("#email")], value="test"),
+            make_event("type", "#email", value="t"),
+            make_event("type", "#email", value="te"),
+            make_event("type", "#email", value="tes"),
+            make_event("type", "#email", value="test"),
         ]
 
         result = preprocess_events(events)
@@ -122,8 +60,8 @@ class TestPreprocessEvents:
     def test_preserves_type_events_on_different_selectors(self) -> None:
         """Type events on different selectors should not be collapsed together."""
         events = [
-            make_event("type", [css_selector("#email")], value="user"),
-            make_event("type", [css_selector("#password")], value="pass"),
+            make_event("type", "#email", value="user"),
+            make_event("type", "#password", value="pass"),
         ]
 
         result = preprocess_events(events)
@@ -135,10 +73,10 @@ class TestPreprocessEvents:
     def test_removes_scroll_events(self) -> None:
         """Scroll events should be filtered out."""
         events = [
-            make_event("click", [css_selector("#btn")]),
+            make_event("click", "#btn"),
             make_event("scroll"),
             make_event("scroll"),
-            make_event("click", [css_selector("#other")]),
+            make_event("click", "#other"),
         ]
 
         result = preprocess_events(events)
@@ -168,8 +106,8 @@ class TestPreprocessEvents:
     def test_flushes_pending_type_at_end(self) -> None:
         """Type events at end of recording should be included."""
         events = [
-            make_event("click", [css_selector("#start")]),
-            make_event("type", [css_selector("#input")], value="final"),
+            make_event("click", "#start"),
+            make_event("type", "#input", value="final"),
         ]
 
         result = preprocess_events(events)
@@ -182,7 +120,7 @@ class TestPreprocessEvents:
         events = [
             make_event(
                 "click",
-                [role_selector("button", "Submit")],
+                'role=button[name="Submit"]',
                 element_type="button",
                 element_text="Submit Form",
             ),
@@ -206,39 +144,12 @@ class TestPreprocessEvents:
         assert result[0]["event_type"] == "key_press"
         assert result[0]["key"] == "Enter"
 
-    def test_uses_best_selector(self) -> None:
-        """Should use the best selector from the list."""
-        events = [
-            make_event(
-                "click",
-                [
-                    css_selector("#btn"),
-                    role_selector("button", "Login"),
-                ],
-            ),
-        ]
-
-        result = preprocess_events(events)
-
-        assert result[0]["selector"] == 'role=button[name="Login"]'
-
-    def test_fallback_to_coordinates_without_selector(self) -> None:
-        """Should include coordinates when no selector is available."""
-        events = [
-            make_event("click", [], x=100, y=200),
-        ]
-
-        result = preprocess_events(events)
-
-        assert result[0]["x"] == 100
-        assert result[0]["y"] == 200
-
     def test_iframe_context_included(self) -> None:
         """Iframe events should include frame context."""
         events = [
             make_event(
                 "click",
-                [css_selector("#btn")],
+                "#btn",
                 frame_type="iframe",
             ),
         ]
@@ -266,7 +177,7 @@ class TestPreprocessEvents:
             "key_press",
         ]
 
-        events = [make_event(t, [css_selector("#el")]) for t in event_types]
+        events = [make_event(t, "#el") for t in event_types]
         result = preprocess_events(events)
 
         # Scroll is filtered out

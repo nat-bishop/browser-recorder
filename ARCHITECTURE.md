@@ -7,7 +7,8 @@ Technical overview of browser-agents - a tool for recording browser interactions
 ```mermaid
 flowchart LR
     subgraph Recording
-        CE[Chrome Extension] -->|Export JSON| S[(sessions/)]
+        R[playwright-crx recorder] -->|trace.zip| I[trace_importer.py]
+        I -->|RecordingSession| S[(sessions/)]
     end
 
     subgraph Playback
@@ -34,48 +35,51 @@ flowchart LR
 
 Typer-based CLI with session commands:
 
-- `import-session <file>` - Import Chrome extension export
-- `replay-session <session>` - Replay with multi-selector resolution (supports `--safe`)
+- `launch-chrome` - Launch Chrome with debugging port
+- `record` - Connect to Chrome via CDP, trace, wait for Enter, auto-import
+- `import-trace <file>` - Import existing trace.zip
+- `replay-session <session>` - Replay session (supports `--safe`, `--trace`)
 - `convert-session <session>` - Convert session to ActionDefinition via LLM
 - `list-sessions` - List all sessions
 
 Uses lazy imports for heavy dependencies (LangChain loaded only for `convert-session`).
 
-### Chrome Extension: `browser-recorder-extension/`
+### Recorder: `recorder/`
 
-MV3 Chrome extension for recording from existing browser session:
+Playwright-crx based Chrome extension for recording:
 
-| File | Purpose |
-|------|---------|
-| `manifest.json` | MV3 config, `all_frames: true` for iframe support |
-| `background.js` | Service worker, session state, navigate events |
-| `content.js` | Event capture (11 event types) |
-| `selector-generator.js` | Codegen-style selectors |
-| `popup.html/js` | Start/stop/export UI |
+Built on playwright-crx, which provides Playwright's recording capabilities as a Chrome extension. Records to trace.zip format containing action events, network traffic, screenshots, and DOM snapshots.
 
-**Advantages over Playwright:**
-- User's existing session (logged in, cookies)
-- iframe capture via `all_frames: true`
-- No browser launch overhead
+**Build once:**
+```bash
+cd recorder && npm install && npm run build
+```
+
+**Load in Chrome:**
+Load `recorder/extension/dist/` as unpacked extension.
+
+### Importers Package: `importers/`
+
+| Module | Purpose |
+|--------|---------|
+| `trace_importer.py` | Import playwright-crx trace.zip → RecordingSession |
+
+**parse_playwright_selector()** - Converts Playwright internal selectors:
+- `internal:role=button[name="Submit"]` → role selector
+- `internal:label="Email"` → label selector
+- `internal:text="Click"` → text selector
+- CSS selectors → css selector
 
 ### Models Package: `models/`
 
-New Pydantic models for Codegen-style multi-selector capture:
+Pydantic models for recording sessions:
 
 | Module | Models |
 |--------|--------|
-| `selectors.py` | `SelectorCandidate` (strategy, value, confidence) |
 | `events.py` | `UIEvent`, `UIEventType` (11 event types) |
+| `network.py` | `NetworkRequest` (captured HTTP traffic) |
 | `session.py` | `RecordingSession`, `SessionMetadata`, `VideoInfo` |
 | `workflow.py` | `ActionDefinition`, `ActionStep`, `ActionParameter` |
-
-**SelectorCandidate strategies** (priority order):
-1. `role` - ARIA role + accessible name (highest priority)
-2. `label` - Form label text
-3. `placeholder` - Input placeholder
-4. `text` - Element text content
-5. `testid` - data-testid attribute
-6. `css` - CSS selector (fallback)
 
 **UIEventType** - 11 event types:
 - Mouse: `click`, `double_click`, `right_click`
@@ -85,23 +89,12 @@ New Pydantic models for Codegen-style multi-selector capture:
 
 ### Playback Package: `playback/`
 
-Session replay with multi-selector resolution:
+Session replay:
 
 | Module | Class | Purpose |
 |--------|-------|---------|
-| `selector_resolver.py` | `SelectorResolver` | Priority-based selector resolution |
 | `executor.py` | `SessionExecutor` | Handles all 11 event types |
 | `safe_replay.py` | `SafeReplayController` | Network interception |
-
-**SelectorResolver** - Tries selectors in priority order:
-```python
-async def resolve(self, event: UIEvent) -> Locator | None:
-    for candidate in event.selectors:
-        locator = self._to_locator(candidate)
-        if await locator.count() == 1:
-            return locator
-    return None  # Fall back to coordinates
-```
 
 **SafeReplayMode** - Network interception modes:
 - `LIVE` - No interception
@@ -151,20 +144,20 @@ Pydantic-settings singleton supporting `.env` files.
 
 ## Data Flow
 
-### Recording Flow (Chrome Extension)
+### Recording Flow (playwright-crx)
 
 ```
 User interacts with Browser
          ↓
-Chrome Extension content.js captures event
+playwright-crx captures events
          ↓
-selector-generator.js creates multi-selector candidates
+Exports trace.zip (NDJSON + resources)
          ↓
-UIEvent model created with selectors
+trace_importer.py parses trace.trace
          ↓
-Accumulated in extension state
-         ↓ (user clicks "Export Session")
-JSON file exported for import
+Converts Playwright selectors → SelectorCandidate
+         ↓
+RecordingSession saved to sessions/
 ```
 
 ### Conversion Flow
@@ -189,7 +182,8 @@ Save to sessions/{id}/processed/workflow.json
 
 | Decision | Choice | Reason |
 |----------|--------|--------|
-| Recording method | Chrome Extension | User's existing session (logged in, cookies, iframes) |
+| Recording method | playwright-crx extension | Playwright's reliability + Chrome extension convenience |
+| Import format | trace.zip (NDJSON) | Rich action data + screenshots + DOM snapshots |
 | Multi-selector | 6 strategies per event | Resilient replay (fallback if one selector breaks) |
 | LLM providers | Multi-provider | Ollama (local), Anthropic, OpenAI via `LLM_PROVIDER` |
 | Storage format | Session JSON | Events + multi-selector candidates + metadata |
@@ -213,37 +207,40 @@ Pydantic validation happens at system boundaries:
 ```
 sessions/
   {session_id}/
-    session.json           # RecordingSession (UIEvents with multi-selector)
-    media/
-      recording.webm       # Video (optional, future)
+    session.json           # RecordingSession (UIEvents + NetworkRequests)
+    trace.zip              # Original recording trace
+    replay_trace.zip       # Playwright trace from replay (if --trace used)
     processed/
       workflow.json        # ActionDefinition from LLM conversion
 ```
 
 ### Session Format (RecordingSession)
 
-Chrome extension exports use `RecordingSession` with multi-selector `UIEvent`:
+Imported trace.zip files convert to `RecordingSession`:
 
 ```json
 {
   "metadata": {
-    "session_id": "sess_abc123",
+    "id": "sess_abc123",
     "source_url": "https://example.com",
-    "created_at": "2024-12-21T10:00:00Z"
+    "started_at": "2024-12-21T10:00:00Z"
   },
   "events": [
     {
       "timestamp": "2024-12-21T10:00:01Z",
       "event_type": "click",
-      "selectors": [
-        {"strategy": "role", "value": "button", "confidence": "high", "role": "button", "name": "Submit"},
-        {"strategy": "testid", "value": "submit-btn", "confidence": "high"},
-        {"strategy": "css", "value": "#submit-button", "confidence": "low"}
-      ],
+      "selector": "role=button[name=\"Submit\"]",
       "x": 100,
-      "y": 200,
-      "element_type": "button",
-      "element_text": "Submit"
+      "y": 200
+    }
+  ],
+  "network_requests": [
+    {
+      "timestamp": "2024-12-21T10:00:02Z",
+      "method": "GET",
+      "url": "https://example.com/api/data",
+      "status": 200,
+      "duration_ms": 45.2
     }
   ]
 }

@@ -2,15 +2,11 @@
 
 ## Overview
 
-Building a production-grade browser recording system with:
-- Chrome Extension for universal capture (including iframes)
+Production browser recording system with:
+- playwright-crx recorder extension (Playwright-powered Chrome extension)
 - Codegen-style selectors (role, label, placeholder, text, testid, css)
-- Video + audio recording (synchronized with events)
+- trace.zip import (action events, network, screenshots, DOM snapshots)
 - Session-based storage with LLM-derived workflows
-
-**Explicitly NOT included (by design):**
-- Network traffic capture (security concerns, marginal LLM value)
-- Screenshots (video covers this)
 
 ## Progress Summary
 
@@ -18,8 +14,9 @@ Building a production-grade browser recording system with:
 |--------|--------|-------------|
 | Sprint 1 | ✅ Complete | Core Models & Selector Generator |
 | Sprint 2 | ✅ Complete | Multi-Selector Playback |
-| Sprint 3 | ✅ Complete | Chrome Extension MVP |
-| Sprint 4 | ✅ Complete | LLM Conversion (Video deferred) |
+| Sprint 3 | ✅ Complete | playwright-crx Recorder Integration |
+| Sprint 4 | ✅ Complete | LLM Conversion & Trace Import |
+| Sprint 5 | ✅ Complete | CDP Recording & Network Capture |
 
 ---
 
@@ -161,74 +158,62 @@ async def resolve(self, event: UIEvent) -> Locator | None:
 
 ---
 
-## Sprint 3: Chrome Extension MVP ✅
+## Sprint 3: playwright-crx Recorder Integration ✅
 
 **Status**: Complete
-**Completed**: 2025-01-08
+**Completed**: 2025-01-12
 
 ### Deliverables
 
 | Task | Status | Files |
 |------|--------|-------|
-| Extension manifest | ✅ | `browser-recorder-extension/manifest.json` |
-| Background script | ✅ | `browser-recorder-extension/background.js` |
-| Content script | ✅ | `browser-recorder-extension/content.js` |
-| Popup UI | ✅ | `browser-recorder-extension/popup.html`, `popup.js` |
-| Selector generator | ✅ | `browser-recorder-extension/selector-generator.js` |
-| Icons | ✅ | `browser-recorder-extension/icons/` |
+| Add playwright-crx as recorder | ✅ | `recorder/` directory |
+| Build configuration | ✅ | `recorder/package.json`, `recorder/vite.config.mts` |
+| Trace importer | ✅ | `src/browser_agents/importers/trace_importer.py` |
+| CLI import-trace command | ✅ | `src/browser_agents/cli.py` |
+| Remove old Chrome extension | ✅ | Deleted `browser-recorder-extension/` |
 
 ### New File Structure Created
 
 ```
-browser-recorder-extension/        ✅ NEW
-├── manifest.json                 # MV3, all_frames: true
-├── background.js                 # Service worker, session state (150 lines)
-├── content.js                    # Event capture (250 lines)
-├── selector-generator.js         # Copied from src/browser_agents/js/
-├── popup.html                    # Start/stop UI
-├── popup.js                      # UI logic (120 lines)
-└── icons/
-    ├── icon16.png
-    ├── icon48.png
-    └── icon128.png
+recorder/                          ✅ NEW
+├── src/                          # TypeScript source
+├── playwright/                   # Playwright as git subtree
+├── extension/dist/               # Built Chrome extension
+├── package.json
+└── vite.config.mts
+
+src/browser_agents/importers/     ✅ NEW
+├── __init__.py
+└── trace_importer.py             # trace.zip → RecordingSession
 ```
 
 ### Key Features Implemented
 
-**Event Capture** - All 11 event types:
-- `click`, `double_click`, `right_click` - Mouse events (capture phase)
-- `type`, `clear` - Input events (tracks value changes)
-- `select_option` - Select element changes
-- `check`, `uncheck` - Checkbox/radio changes
-- `scroll` - Debounced (150ms)
-- `key_press` - Special keys (Enter, Tab, Escape, arrows)
-- `navigate` - Tracked via background.js webNavigation API
+**playwright-crx Recorder:**
+- Built on Playwright's recording infrastructure
+- Exports trace.zip with action events, network, screenshots, DOM snapshots
+- Load `recorder/extension/dist/` in Chrome as unpacked extension
 
-**Codegen-style Selectors** - Uses existing `selector-generator.js`:
-- Role + accessible name (highest priority)
-- Label, placeholder, text, testid
-- CSS (fallback)
-
-**Key Advantages Over Playwright**
-- `all_frames: true` enables iframe capture
-- User's existing Chrome session (logged in, cookies)
-- No browser launch overhead
+**Trace Importer:**
+- Parses trace.zip (NDJSON format)
+- Converts Playwright internal selectors → SelectorCandidate
+- Extracts 11 event types: click, dblclick, fill, clear, check, uncheck, selectOption, press, goto, scroll
+- Preserves timestamps and coordinates
 
 ### Usage
 
-1. Load unpacked extension: `chrome://extensions` > Load unpacked > select `browser-recorder-extension/`
-2. Navigate to target page
-3. Click extension icon > "Start Recording"
-4. Perform interactions
-5. Click "Stop Recording" > "Export Session"
-6. Import: `uv run browser-agents import-session ~/Downloads/session.json`
+1. Build: `cd recorder && npm install && npm run build`
+2. Load: chrome://extensions > Load unpacked > `recorder/extension/dist/`
+3. Record, export trace.zip
+4. Import: `uv run browser-agents import-trace ~/Downloads/trace.zip`
 
 ---
 
-## Sprint 4: Polish, Conversion & Video ✅
+## Sprint 4: LLM Conversion & Trace Import ✅
 
-**Status**: Complete (conversion), Video deferred
-**Completed**: 2025-01-08
+**Status**: Complete
+**Completed**: 2025-01-12
 
 ### Deliverables
 
@@ -238,7 +223,8 @@ browser-recorder-extension/        ✅ NEW
 | Create conversion prompt | ✅ | `src/browser_agents/prompts/convert_session.yaml` |
 | Add convert-session CLI | ✅ | `src/browser_agents/cli.py` |
 | Update preprocessing tests | ✅ | `tests/test_preprocessing.py` |
-| Video capture | ⏳ | Deferred to future sprint |
+| Add trace import CLI | ✅ | `src/browser_agents/cli.py` |
+| Add replay tracing | ✅ | `--trace` flag for `replay-session` |
 
 ### Key Features Implemented
 
@@ -255,59 +241,75 @@ browser-recorder-extension/        ✅ NEW
 - Leverages element context (type, label, text)
 - Handles key_press, check/uncheck, select_option
 
-**CLI Command:**
+**CLI Commands:**
 ```bash
+# Import trace.zip
+uv run browser-agents import-trace ~/Downloads/trace.zip
+
 # Convert session to action definition
 uv run browser-agents convert-session sessions/sess_abc123 -d "Login and checkout"
-uv run browser-agents convert-session ~/Downloads/session.json -d "Search products"
+
+# Replay with tracing (saves trace.zip for debugging)
+uv run browser-agents replay-session sessions/sess_abc123 --trace
 ```
 
-### Test Results
+---
+
+## Sprint 5: CDP Recording & Network Capture ✅
+
+**Status**: Complete
+**Completed**: 2025-01-13
+
+### Deliverables
+
+| Task | Status | Files |
+|------|--------|-------|
+| Add `record` CLI command | ✅ | `src/browser_agents/cli.py` |
+| Add `launch-chrome` CLI command | ✅ | `src/browser_agents/cli.py` |
+| Copy trace.zip to session folder | ✅ | `src/browser_agents/cli.py` |
+| NetworkRequest model | ✅ | `src/browser_agents/models/network.py` |
+| Parse trace.network HAR format | ✅ | `src/browser_agents/importers/trace_importer.py` |
+| Remove unused SelectorCandidate | ✅ | Deleted `models/selectors.py` |
+| Remove unused SelectorResolver | ✅ | Deleted `playback/selector_resolver.py` |
+
+### New CLI Commands
+
+```bash
+# Launch Chrome with debugging port
+browser-agents launch-chrome --url https://example.com
+
+# Record via CDP (keeps connection alive, press Enter to stop)
+browser-agents record
+
+# Session is auto-imported with trace.zip and network requests
 ```
-tests/test_preprocessing.py: 17 passed
-tests/test_models.py: 42 passed
-tests/test_selector_resolver.py: 21 passed
-Total: 79 tests passing
-```
+
+### Key Features Implemented
+
+**CDP Recording:**
+- `launch-chrome` finds Chrome on Windows/Mac/Linux and launches with `--remote-debugging-port`
+- `record` connects via Playwright CDP, starts tracing, waits for Enter, stops and auto-imports
+
+**Network Capture:**
+- `NetworkRequest` model stores HTTP traffic from trace.network (HAR format)
+- Includes method, url, status, headers, timing, body sizes
+
+**Storage Updates:**
+- Original trace.zip copied to `sessions/{id}/trace.zip` during import
+- `RecordingSession.network_requests` field added
 
 ---
 
 ## Storage Structure
 
 ```
-sessions/                          # NEW storage location
+sessions/                          # Session storage
 └── {session_id}/
-    ├── session.json              # RecordingSession (metadata + events)
-    ├── media/
-    │   └── recording.webm        # Video (optional, Sprint 4)
+    ├── session.json              # RecordingSession (events + network)
+    ├── trace.zip                 # Original recording trace
+    ├── replay_trace.zip          # Playwright trace from replay (if --trace)
     └── processed/
         └── workflow.json         # LLM-derived ActionDefinition
-```
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         CAPTURE LAYER                                        │
-│  Chrome Extension (primary) OR Playwright (dev/testing)                      │
-│  Produces: UIEvent with Codegen-style selectors                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      SESSION STORAGE                                         │
-│  sessions/{id}/session.json + media/recording.webm (optional)               │
-│  Raw events stored, LLM processing generates workflow.json                   │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      PROCESSED OUTPUT                                        │
-│  sessions/{id}/processed/workflow.json (ActionDefinition)                   │
-│  Generated by LLM from raw events, can be re-generated                      │
-└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -316,17 +318,8 @@ sessions/                          # NEW storage location
 
 ```bash
 # Unit tests (fast)
-uv run pytest tests/test_models.py -v              # 42 tests ✅
-uv run pytest tests/test_preprocessing.py -v       # 17 tests ✅
-
-# Selector resolution tests (Sprint 2)
-uv run pytest tests/test_selector_resolver.py -v   # 21 tests ✅
-
-# All fast tests
-uv run pytest tests/test_models.py tests/test_selector_resolver.py tests/test_preprocessing.py -v  # 79 tests ✅
-
-# Integration tests (browser)
-uv run pytest tests/test_browser.py -v --slow
+uv run pytest tests/test_models.py -v
+uv run pytest tests/test_preprocessing.py -v
 
 # All tests
 uv run pytest -v
@@ -345,19 +338,23 @@ uv run pytest -v
 | Selector fallback chain | 2 | ✅ |
 | Coordinate fallback | 2 | ✅ |
 | Safe replay mode | 2 | ✅ |
-| Chrome extension capture | 3 | ✅ |
-| iframe support | 3 | ✅ |
-| Video recording | 4 | ⏳ (deferred) |
+| playwright-crx recorder | 3 | ✅ |
+| trace.zip import | 3 | ✅ |
+| Replay tracing | 4 | ✅ |
 | LLM conversion | 4 | ✅ |
+| CDP recording | 5 | ✅ |
+| Network capture | 5 | ✅ |
 
 ---
 
-## What Gets Removed (Clean Refactor)
+## What Was Removed (Clean Refactor)
 
 | Old Code | Replacement | Status |
 |----------|-------------|--------|
 | `RecordedEvent` model | `UIEvent` | ✅ |
 | `Workflow` model | `RecordingSession` | ✅ |
 | `workflows/` directory | `sessions/` | ✅ |
-| Single selector string | `SelectorCandidate[]` | ✅ |
-| Screenshot capture | Video recording | ⏳ Sprint 4 |
+| `SelectorCandidate[]` | Single selector string | ✅ |
+| `selectors.py` | Removed (unused) | ✅ |
+| `selector_resolver.py` | Removed (unused) | ✅ |
+| `browser-recorder-extension/` | `recorder/` (playwright-crx) | ✅ |

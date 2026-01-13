@@ -18,7 +18,6 @@ from browser_agents.llm import get_structured_llm
 from browser_agents.models import (
     ActionDefinition,
     RecordingSession,
-    SelectorCandidate,
     UIEvent,
     UIEventType,
 )
@@ -53,50 +52,10 @@ def load_session(path: Path) -> RecordingSession:
     return RecordingSession.model_validate_json(content)
 
 
-def get_best_selector(selectors: list[SelectorCandidate]) -> str | None:
-    """Get the best selector value from a list of candidates.
-
-    Priority: role > label > placeholder > text > testid > css
-
-    Args:
-        selectors: List of SelectorCandidate objects.
-
-    Returns:
-        Best selector value string, or None if list is empty.
-    """
-    if not selectors:
-        return None
-
-    # Priority order matches Playwright Codegen
-    priority = {
-        "role": 0,
-        "label": 1,
-        "placeholder": 2,
-        "text": 3,
-        "testid": 4,
-        "css": 5,
-    }
-
-    # Sort by priority and confidence
-    sorted_selectors = sorted(
-        selectors,
-        key=lambda s: (priority.get(s.strategy, 99), s.confidence != "high"),
-    )
-
-    best = sorted_selectors[0]
-
-    # For role selectors, return a more usable format
-    if best.strategy == "role" and best.role and best.name:
-        return f'role={best.role}[name="{best.name}"]'
-
-    return best.value
-
-
 def preprocess_events(events: list[UIEvent]) -> list[dict[str, Any]]:
     """Preprocess UIEvents for LLM consumption.
 
     Transformations:
-    - Select best selector from each event's selector list
     - Include element context (type, label, text) for LLM understanding
     - Remove scroll events (usually noise)
     - Deduplicate consecutive navigations to same URL
@@ -119,8 +78,8 @@ def preprocess_events(events: list[UIEvent]) -> list[dict[str, Any]]:
             else event.event_type
         )
 
-        # Get best selector
-        selector = get_best_selector(event.selectors)
+        # Use selector directly
+        selector = event.selector
 
         # Collapse consecutive type events on same selector
         if event_type == "type":
@@ -187,11 +146,6 @@ def preprocess_events(events: list[UIEvent]) -> list[dict[str, Any]]:
             event_dict["element_text"] = event.element_text[:100]  # Truncate
         if event.element_label:
             event_dict["element_label"] = event.element_label
-
-        # Add fallback coordinates if no selector
-        if not selector and event.x is not None and event.y is not None:
-            event_dict["x"] = event.x
-            event_dict["y"] = event.y
 
         # Note iframe context
         if event.frame_type == "iframe":

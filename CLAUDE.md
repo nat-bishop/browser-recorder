@@ -25,13 +25,12 @@ browser-agents/
 │   ├── llm.py           # LLM factory for Ollama/Anthropic/OpenAI
 │   ├── models/          # Pydantic models package
 │   │   ├── __init__.py  # Exports all models
-│   │   ├── selectors.py # SelectorCandidate (6 strategies)
 │   │   ├── events.py    # UIEvent, UIEventType (11 event types)
+│   │   ├── network.py   # NetworkRequest (captured HTTP traffic)
 │   │   ├── session.py   # RecordingSession, SessionMetadata
 │   │   └── workflow.py  # ActionDefinition, ActionStep
 │   ├── playback/        # Session playback package
 │   │   ├── __init__.py
-│   │   ├── selector_resolver.py  # Codegen-style selector resolution
 │   │   ├── executor.py  # SessionExecutor (11 event types)
 │   │   └── safe_replay.py  # Network interception modes
 │   ├── storage/         # Session storage package
@@ -51,25 +50,25 @@ browser-agents/
 ├── tests/
 │   ├── conftest.py      # Shared fixtures (session-based)
 │   ├── test_cli.py      # CLI tests - argument handling
-│   ├── test_models.py   # Unit tests - models (UIEvent, SelectorCandidate)
-│   ├── test_preprocessing.py  # Event preprocessing tests
-│   └── test_selector_resolver.py  # Selector resolution tests
+│   ├── test_models.py   # Unit tests - models (UIEvent, etc.)
+│   └── test_preprocessing.py  # Event preprocessing tests
 └── sessions/            # Session storage
 ```
 
 ## CLI Usage
 
 ```bash
-# Import from playwright-crx trace.zip (recommended)
-uv run browser-agents import-trace ~/Downloads/trace.zip
+# Record directly via CDP (recommended)
+uv run browser-agents launch-chrome --url https://example.com
+uv run browser-agents record  # Press Enter when done
 
-# Import session from legacy Chrome extension export
-uv run browser-agents import-session ~/Downloads/session.json
+# Import from existing trace.zip
+uv run browser-agents import-trace ~/Downloads/trace.zip
 
 # List all sessions
 uv run browser-agents list-sessions
 
-# Replay session with multi-selector resolution
+# Replay session
 uv run browser-agents replay-session sessions/sess_abc123
 uv run browser-agents replay-session sessions/sess_abc123 --safe --mode warn
 
@@ -81,21 +80,6 @@ uv run browser-agents convert-session sessions/sess_abc123 -d "Login and checkou
 
 # Help
 uv run browser-agents --help
-```
-
-## Recording with playwright-crx
-
-```bash
-# Build the recorder extension (one-time)
-cd recorder && npm install && npm run build
-
-# Load extension in Chrome:
-# 1. Go to chrome://extensions
-# 2. Enable Developer mode
-# 3. Load unpacked: recorder/extension/dist
-
-# Record, then export trace.zip and import:
-uv run browser-agents import-trace ~/Downloads/trace.zip
 ```
 
 ## Testing
@@ -118,10 +102,9 @@ uv run pytest --cov=browser_agents
 
 | File | Purpose |
 |------|---------|
-| `test_models.py` | Model validation (UIEvent, SelectorCandidate, etc.) |
+| `test_models.py` | Model validation (UIEvent, NetworkRequest, etc.) |
 | `test_cli.py` | CLI argument handling |
 | `test_preprocessing.py` | Event preprocessing |
-| `test_selector_resolver.py` | Selector resolution logic |
 
 ### Writing Tests
 
@@ -164,14 +147,18 @@ uv run git-cliff -o CHANGELOG.md
 
 **RecordingSession model:**
 - Stored in `sessions/{id}/session.json`
-- Contains: metadata + UIEvents with multi-selector candidates
+- Contains: metadata + UIEvents + NetworkRequests
+- Original trace.zip copied to `sessions/{id}/trace.zip`
 - Converted output in `sessions/{id}/processed/workflow.json`
 - Replay traces in `sessions/{id}/replay_trace.zip`
 
 **UIEvent model:**
 - 11 event types: `click`, `double_click`, `right_click`, `type`, `clear`, `select_option`, `check`, `uncheck`, `scroll`, `navigate`, `key_press`
-- Multiple `SelectorCandidate` per event (Codegen-style)
-- Selector priority: role > label > placeholder > text > testid > css
+- Selector string per event (Playwright format)
+
+**NetworkRequest model:**
+- Captured HTTP requests from trace.network (HAR format)
+- Includes: method, url, status, headers, timing
 
 ### Playwright Trace Format (trace.zip)
 

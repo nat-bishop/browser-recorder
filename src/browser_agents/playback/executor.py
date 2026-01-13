@@ -1,7 +1,7 @@
 """Session replay executor.
 
-Replays recorded UIEvents using Codegen-style selector resolution.
-Falls back to coordinates when all selectors fail.
+Replays recorded UIEvents using Playwright selectors.
+Fails explicitly if selector doesn't match - no fallback to coordinates.
 """
 
 from collections.abc import Callable
@@ -10,8 +10,6 @@ from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from browser_agents.models import UIEvent, UIEventType
-
-from .selector_resolver import SelectorResolver
 
 # Timeout for element operations (ms)
 ELEMENT_TIMEOUT = 5000
@@ -29,11 +27,11 @@ class PlaybackError(Exception):
 
 
 class SessionExecutor:
-    """Executes recorded sessions with Codegen-style selector resolution.
+    """Executes recorded sessions using Playwright selectors.
 
     Features:
-    - Tries selectors in priority order (role → label → placeholder → text → testid → css)
-    - Falls back to coordinates when all selectors fail
+    - Uses Playwright's selector resolution directly
+    - Fails explicitly if selector doesn't match
     - Configurable delay between events
     - Progress callback support
     - Configurable navigation wait strategy
@@ -59,7 +57,6 @@ class SessionExecutor:
         self.delay_ms = delay_ms
         self.on_event = on_event
         self.wait_until = wait_until
-        self.resolver = SelectorResolver(page)
 
     async def replay_event(self, event: UIEvent) -> None:
         """Replay a single event.
@@ -123,83 +120,67 @@ class SessionExecutor:
 
     async def _handle_click(self, event: UIEvent) -> None:
         """Handle click event."""
-        locator = await self.resolver.resolve(event)
-        if locator:
-            await locator.click(timeout=ELEMENT_TIMEOUT)
-        elif event.x is not None and event.y is not None:
-            await self.page.mouse.click(event.x, event.y)
-        else:
-            raise PlaybackError("No selector or coordinates for click", event)
+        if not event.selector:
+            raise PlaybackError("No selector for click event", event)
+        locator = self.page.locator(event.selector)
+        await locator.click(timeout=ELEMENT_TIMEOUT)
 
     async def _handle_double_click(self, event: UIEvent) -> None:
         """Handle double-click event."""
-        locator = await self.resolver.resolve(event)
-        if locator:
-            await locator.dblclick(timeout=ELEMENT_TIMEOUT)
-        elif event.x is not None and event.y is not None:
-            await self.page.mouse.dblclick(event.x, event.y)
-        else:
-            raise PlaybackError("No selector or coordinates for double-click", event)
+        if not event.selector:
+            raise PlaybackError("No selector for double-click event", event)
+        locator = self.page.locator(event.selector)
+        await locator.dblclick(timeout=ELEMENT_TIMEOUT)
 
     async def _handle_right_click(self, event: UIEvent) -> None:
         """Handle right-click event."""
-        locator = await self.resolver.resolve(event)
-        if locator:
-            await locator.click(button="right", timeout=ELEMENT_TIMEOUT)
-        elif event.x is not None and event.y is not None:
-            await self.page.mouse.click(event.x, event.y, button="right")
-        else:
-            raise PlaybackError("No selector or coordinates for right-click", event)
+        if not event.selector:
+            raise PlaybackError("No selector for right-click event", event)
+        locator = self.page.locator(event.selector)
+        await locator.click(button="right", timeout=ELEMENT_TIMEOUT)
 
     async def _handle_type(self, event: UIEvent) -> None:
         """Handle type event."""
         if event.value is None:
             return  # Nothing to type
-
-        locator = await self.resolver.resolve(event)
-        if locator:
-            await locator.fill(event.value, timeout=ELEMENT_TIMEOUT)
-        else:
+        if not event.selector:
             raise PlaybackError("No selector for type event", event)
+        locator = self.page.locator(event.selector)
+        await locator.fill(event.value, timeout=ELEMENT_TIMEOUT)
 
     async def _handle_clear(self, event: UIEvent) -> None:
         """Handle clear event."""
-        locator = await self.resolver.resolve(event)
-        if locator:
-            await locator.clear(timeout=ELEMENT_TIMEOUT)
-        else:
+        if not event.selector:
             raise PlaybackError("No selector for clear event", event)
+        locator = self.page.locator(event.selector)
+        await locator.clear(timeout=ELEMENT_TIMEOUT)
 
     async def _handle_select_option(self, event: UIEvent) -> None:
         """Handle select option event."""
         if event.value is None:
             return
-
-        locator = await self.resolver.resolve(event)
-        if locator:
-            # Try to select by text first, then by value
-            try:
-                await locator.select_option(label=event.value, timeout=ELEMENT_TIMEOUT)
-            except Exception:
-                await locator.select_option(value=event.value, timeout=ELEMENT_TIMEOUT)
-        else:
+        if not event.selector:
             raise PlaybackError("No selector for select_option event", event)
+        locator = self.page.locator(event.selector)
+        # Try to select by text first, then by value
+        try:
+            await locator.select_option(label=event.value, timeout=ELEMENT_TIMEOUT)
+        except Exception:
+            await locator.select_option(value=event.value, timeout=ELEMENT_TIMEOUT)
 
     async def _handle_check(self, event: UIEvent) -> None:
         """Handle check event."""
-        locator = await self.resolver.resolve(event)
-        if locator:
-            await locator.check(timeout=ELEMENT_TIMEOUT)
-        else:
+        if not event.selector:
             raise PlaybackError("No selector for check event", event)
+        locator = self.page.locator(event.selector)
+        await locator.check(timeout=ELEMENT_TIMEOUT)
 
     async def _handle_uncheck(self, event: UIEvent) -> None:
         """Handle uncheck event."""
-        locator = await self.resolver.resolve(event)
-        if locator:
-            await locator.uncheck(timeout=ELEMENT_TIMEOUT)
-        else:
+        if not event.selector:
             raise PlaybackError("No selector for uncheck event", event)
+        locator = self.page.locator(event.selector)
+        await locator.uncheck(timeout=ELEMENT_TIMEOUT)
 
     async def _handle_scroll(self, event: UIEvent) -> None:
         """Handle scroll event."""

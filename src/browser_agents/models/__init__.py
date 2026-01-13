@@ -3,7 +3,6 @@
 This package provides a clean architecture for browser automation:
 
 Recording (raw events):
-- selectors.py: SelectorCandidate for Codegen-style element identification
 - events.py: UIEvent, UIEventType for user interactions
 - session.py: RecordingSession, SessionMetadata, VideoInfo for sessions
 
@@ -12,7 +11,7 @@ Workflow (LLM-processed output):
 """
 
 from .events import UIEvent, UIEventType
-from .selectors import SelectorCandidate
+from .network import NetworkRequest
 from .session import RecordingSession, SessionMetadata, VideoInfo
 from .workflow import (
     ActionDefinition,
@@ -22,11 +21,11 @@ from .workflow import (
 )
 
 __all__ = [
-    # Selectors
-    "SelectorCandidate",
     # Events
     "UIEvent",
     "UIEventType",
+    # Network
+    "NetworkRequest",
     # Session
     "RecordingSession",
     "SessionMetadata",

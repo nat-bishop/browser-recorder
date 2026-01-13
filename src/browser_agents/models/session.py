@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from .events import UIEvent
+from .network import NetworkRequest
 
 
 class VideoInfo(BaseModel):
@@ -71,4 +72,7 @@ class RecordingSession(BaseModel):
     metadata: SessionMetadata = Field(description="Session metadata")
     events: list[UIEvent] = Field(
         default_factory=list, description="All UI events in order"
+    )
+    network_requests: list[NetworkRequest] = Field(
+        default_factory=list, description="HTTP requests captured during recording"
     )

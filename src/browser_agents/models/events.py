@@ -6,8 +6,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .selectors import SelectorCandidate
-
 
 class UIEventType(str, Enum):
     """All supported UI event types."""
@@ -30,7 +28,7 @@ class UIEvent(BaseModel):
 
     Each event captures:
     - What happened (event_type)
-    - Where it happened (url, selectors, coordinates)
+    - Where it happened (url, selector)
     - When it happened (timestamp, relative_time_ms)
     - Context for LLM understanding (element_type, label, etc.)
     """
@@ -42,9 +40,9 @@ class UIEvent(BaseModel):
     event_type: UIEventType = Field(description="Type of UI interaction")
     url: str = Field(description="Page URL when event occurred")
 
-    # Codegen-style selectors (THE KEY FEATURE)
-    selectors: list[SelectorCandidate] = Field(
-        default_factory=list, description="Ordered selector candidates, best first"
+    # Playwright selector string
+    selector: str | None = Field(
+        default=None, description="Playwright selector for the target element"
     )
 
     # Element context for LLM understanding
@@ -91,7 +89,3 @@ class UIEvent(BaseModel):
     frame_src: str | None = Field(
         default=None, description="Iframe src URL if in iframe"
     )
-
-    # Fallback coordinates
-    x: int | None = Field(default=None, description="Click X coordinate (fallback)")
-    y: int | None = Field(default=None, description="Click Y coordinate (fallback)")

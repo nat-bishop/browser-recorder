@@ -14,30 +14,24 @@ uv run playwright install chromium
 
 ## Recording
 
-### Option 1: Use the built-in recorder (recommended)
+### Option 1: Record via CDP (recommended)
 
 ```bash
-# Build the recorder extension (first time only)
-cd recorder && npm install && npm run build && cd ..
+# Launch Chrome with debugging port
+uv run browser-agents launch-chrome --url https://example.com
 
-# Load in Chrome:
-# 1. Go to chrome://extensions
-# 2. Enable "Developer mode"
-# 3. Click "Load unpacked" and select recorder/extension/dist/
+# Start recording (keeps connection alive)
+uv run browser-agents record
 
-# Record your session, then export trace.zip and import:
-uv run browser-agents import-trace ~/Downloads/trace.zip
+# Perform actions in the browser, then press Enter to stop
+# Session is auto-imported with trace.zip and network requests
 ```
 
-### Option 2: Use Chrome DevTools Recorder
+### Option 2: Import existing trace.zip
 
-No build required - use Chrome's built-in recorder:
-
-1. Open Chrome DevTools (F12)
-2. Go to "Recorder" panel
-3. Record your actions
-4. Export as JSON
-5. Import with: `uv run browser-agents import-session recording.json`
+```bash
+uv run browser-agents import-trace ~/Downloads/trace.zip
+```
 
 ## Replay
 
@@ -69,7 +63,8 @@ uv run browser-agents convert-session sessions/sess_abc123 -d "Login and checkou
 
 ```
 sessions/{session_id}/
-  session.json              # RecordingSession (UIEvents with multi-selector)
+  session.json              # RecordingSession (UIEvents + NetworkRequests)
+  trace.zip                 # Original recording trace
   replay_trace.zip          # Playwright trace from replay (if --trace used)
   processed/
     workflow.json           # ActionDefinition from LLM conversion

@@ -52,6 +52,20 @@ class TestCLIHelp:
         assert "replay-session" in result.stdout
         assert "import-session" in result.stdout
 
+    def test_record_help(self) -> None:
+        """record --help shows port and output options."""
+        result = runner.invoke(app, ["record", "--help"])
+        assert result.exit_code == 0
+        assert "--port" in result.stdout
+        assert "--output" in result.stdout
+
+    def test_launch_chrome_help(self) -> None:
+        """launch-chrome --help shows port and url options."""
+        result = runner.invoke(app, ["launch-chrome", "--help"])
+        assert result.exit_code == 0
+        assert "--port" in result.stdout
+        assert "--url" in result.stdout
+
 
 class TestReplaySessionCommand:
     """Tests for replay-session command error handling."""

@@ -17,6 +17,7 @@ Production browser recording system with:
 | Sprint 3 | ✅ Complete | playwright-crx Recorder Integration |
 | Sprint 4 | ✅ Complete | LLM Conversion & Trace Import |
 | Sprint 5 | ✅ Complete | CDP Recording & Network Capture |
+| Sprint 6 | ✅ Complete | Network Correlation & Risk Detection |
 
 ---
 
@@ -300,6 +301,54 @@ browser-agents record
 
 ---
 
+## Sprint 6: Network Correlation & Risk Detection ✅
+
+**Status**: Complete
+**Completed**: 2025-01-13
+
+### Deliverables
+
+| Task | Status | Files |
+|------|--------|-------|
+| Fix timestamp calculation in trace import | ✅ | `src/browser_agents/importers/trace_importer.py` |
+| Add response_body to NetworkRequest | ✅ | `src/browser_agents/models/network.py` |
+| Create CorrelatedAction, RiskLevel models | ✅ | `src/browser_agents/models/correlation.py` |
+| Create correlation module | ✅ | `src/browser_agents/correlation.py` |
+| Integrate correlation into converter | ✅ | `src/browser_agents/converter.py` |
+| Unit tests for correlation | ✅ | `tests/test_correlation.py` (44 tests) |
+
+### Key Features Implemented
+
+**Network Request Filtering:**
+- Removes static assets by MIME type (JS, CSS, images, fonts, video, audio)
+- Filters analytics/tracking domains (Google Analytics, Segment, Mixpanel, etc.)
+
+**Event-Network Correlation:**
+- Timestamp-based matching within 2s window (bounded by next event)
+- Requests before first event grouped as "initial page load"
+- Extracts unique API endpoints from URLs
+
+**Risk Level Detection:**
+
+| Level | Triggers |
+|-------|----------|
+| HIGH | DELETE requests, /payment /checkout /admin URLs, credit card/SSN in body |
+| MEDIUM | /auth /login /password /settings URLs |
+| LOW | POST/PUT/PATCH without dangerous patterns |
+| NONE | GET requests |
+
+**LLM Context Enrichment:**
+- `enrich_events_with_network()` - Adds network summary to event descriptions
+- `build_network_summary()` - Creates overview of risky operations for prompt
+
+### Test Results
+
+```
+tests/test_correlation.py: 44 passed
+```
+
+---
+
 ## Storage Structure
 
 ```
@@ -344,6 +393,8 @@ uv run pytest -v
 | LLM conversion | 4 | ✅ |
 | CDP recording | 5 | ✅ |
 | Network capture | 5 | ✅ |
+| Event-network correlation | 6 | ✅ |
+| Risk detection | 6 | ✅ |
 
 ---
 

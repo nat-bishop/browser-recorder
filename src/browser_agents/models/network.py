@@ -32,3 +32,6 @@ class NetworkRequest(BaseModel):
     response_body_size: int | None = Field(
         default=None, description="Response body size in bytes"
     )
+    response_body: bytes | None = Field(
+        default=None, description="Response body content (limited to 100KB)"
+    )

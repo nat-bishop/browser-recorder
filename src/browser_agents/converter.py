@@ -3,14 +3,15 @@
 This module handles:
 1. Loading sessions from JSON files (RecordingSession format)
 2. Event preprocessing (collapsing noise, selecting best selectors)
-3. Prompt loading from YAML
-4. LLM invocation with structured output
-5. Saving processed workflows
+3. Network correlation (linking events to API calls)
+4. Prompt loading from YAML
+5. LLM invocation with structured output
+6. Saving processed workflows
 """
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -21,6 +22,9 @@ from browser_agents.models import (
     UIEvent,
     UIEventType,
 )
+
+if TYPE_CHECKING:
+    from browser_agents.models import CorrelatedAction
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -84,13 +88,14 @@ def preprocess_events(events: list[UIEvent]) -> list[dict[str, Any]]:
         # Collapse consecutive type events on same selector
         if event_type == "type":
             if current_type and current_type.get("selector") == selector:
-                # Update to latest value
+                # Update to latest value (keep first event's ID for correlation)
                 current_type["value"] = event.value
             else:
                 # Flush previous and start new
                 if current_type:
                     processed.append(current_type)
                 current_type = {
+                    "_event_id": event.id,  # Store event ID for correlation
                     "event_type": "type",
                     "selector": selector,
                     "value": event.value,
@@ -120,8 +125,11 @@ def preprocess_events(events: list[UIEvent]) -> list[dict[str, Any]]:
             ):
                 continue
 
-        # Build event dict
-        event_dict: dict[str, Any] = {"event_type": event_type}
+        # Build event dict with event ID for correlation
+        event_dict: dict[str, Any] = {
+            "_event_id": event.id,  # Store event ID for correlation
+            "event_type": event_type,
+        }
 
         # Add selector if present
         if selector:
@@ -160,6 +168,123 @@ def preprocess_events(events: list[UIEvent]) -> list[dict[str, Any]]:
         processed.append(current_type)
 
     return processed
+
+
+def enrich_events_with_network(
+    preprocessed_events: list[dict[str, Any]],
+    correlated_actions: list["CorrelatedAction"],
+) -> list[dict[str, Any]]:
+    """Enrich preprocessed events with network request information.
+
+    Matches preprocessed events to correlated actions by event ID and adds
+    network context (triggered requests, risk level) to each event.
+
+    Args:
+        preprocessed_events: Events from preprocess_events() (must have _event_id)
+        correlated_actions: Correlated actions from correlate_events_with_network()
+
+    Returns:
+        Enriched event dicts with network context added
+    """
+    from browser_agents.models import RiskLevel
+
+    # Build lookup by event ID for accurate matching
+    # This handles preprocessing that removes events (scroll, duplicate navigates)
+    action_by_event_id: dict[str, CorrelatedAction] = {
+        a.event.id: a for a in correlated_actions if a.event is not None
+    }
+
+    enriched = []
+    for event in preprocessed_events:
+        enriched_event = event.copy()
+
+        # Match by event ID (set during preprocess_events)
+        event_id = event.get("_event_id")
+        if event_id and event_id in action_by_event_id:
+            action = action_by_event_id[event_id]
+
+            # Add triggered API calls (not page loads)
+            api_requests = [
+                {"method": r.method, "url": r.url, "status": r.status}
+                for r in action.network_requests
+                if r.mime_type and "json" in r.mime_type.lower()
+            ]
+            if api_requests:
+                enriched_event["triggered_api_calls"] = api_requests
+
+            # Add risk level if not NONE
+            if action.risk_level != RiskLevel.NONE:
+                enriched_event["risk_level"] = action.risk_level.value
+                if action.risk_reason:
+                    enriched_event["risk_reason"] = action.risk_reason
+
+            # Add state-changing flag
+            if action.is_state_changing:
+                enriched_event["is_state_changing"] = True
+
+        # Remove internal _event_id before sending to LLM
+        enriched_event.pop("_event_id", None)
+        enriched.append(enriched_event)
+
+    return enriched
+
+
+def build_network_summary(correlated_actions: list["CorrelatedAction"]) -> str:
+    """Build a summary of network activity for the LLM.
+
+    Args:
+        correlated_actions: List of correlated actions
+
+    Returns:
+        Human-readable summary of network activity
+    """
+    from browser_agents.models import RiskLevel
+
+    # Collect unique API endpoints and their methods
+    api_calls: dict[str, set[str]] = {}
+    high_risk: list[str] = []
+    state_changing_count = 0
+
+    for action in correlated_actions:
+        if action.is_state_changing:
+            state_changing_count += 1
+
+        if action.risk_level == RiskLevel.HIGH:
+            if action.risk_reason:
+                high_risk.append(action.risk_reason)
+
+        for req in action.network_requests:
+            if req.mime_type and "json" in req.mime_type.lower():
+                # Extract path from URL
+                from urllib.parse import urlparse
+
+                try:
+                    path = urlparse(req.url).path
+                    if path not in api_calls:
+                        api_calls[path] = set()
+                    api_calls[path].add(req.method)
+                except Exception:
+                    pass
+
+    if not api_calls and not high_risk:
+        return "No significant API calls detected during this recording."
+
+    lines = []
+
+    if api_calls:
+        lines.append("**API Endpoints Used:**")
+        for path, methods in sorted(api_calls.items())[:10]:  # Limit to 10
+            methods_str = ", ".join(sorted(methods))
+            lines.append(f"- {methods_str} {path}")
+
+    if state_changing_count > 0:
+        lines.append(f"\n**State-changing operations:** {state_changing_count}")
+
+    if high_risk:
+        lines.append("\n**High-risk operations detected:**")
+        lines.extend(f"- {reason}" for reason in high_risk[:5])
+
+    return "\n".join(lines)
 
 
 def load_prompt(prompt_name: str = "convert_session") -> dict[str, str]:
@@ -212,19 +337,22 @@ async def convert_session_to_action(
     session: RecordingSession,
     description: str,
     max_retries: int = 2,
+    include_network: bool = True,
 ) -> ActionDefinition | str:
     """Convert a session's events to an ActionDefinition using LLM analysis.
 
     This function:
     1. Preprocesses events to reduce noise and select best selectors
-    2. Validates event count (min 2, max 100)
-    3. Sends to LLM with structured output
-    4. Validates the response
+    2. Correlates events with network requests (optional)
+    3. Validates event count (min 2, max 100)
+    4. Sends to LLM with structured output
+    5. Validates the response
 
     Args:
         session: The RecordingSession object to convert.
         description: User description of what the workflow does.
         max_retries: Number of retry attempts for transient failures.
+        include_network: Whether to include network correlation context.
 
     Returns:
         ActionDefinition on success, or error string on failure.
@@ -235,6 +363,11 @@ async def convert_session_to_action(
         >>> if isinstance(result, ActionDefinition):
         ...     save_action_definition(result, Path("sessions/sess_abc"))
     """
+    from browser_agents.correlation import (
+        correlate_events_with_network,
+        filter_network_requests,
+    )
+
     try:
         # Preprocess events
         events = preprocess_events(session.events)
@@ -246,6 +379,22 @@ async def convert_session_to_action(
         if len(events) > MAX_EVENTS:
             events = events[:MAX_EVENTS]
 
+        # Correlate with network requests if enabled and available
+        network_summary = ""
+        if include_network and session.network_requests:
+            filtered_requests = filter_network_requests(session.network_requests)
+            correlated_actions = correlate_events_with_network(
+                session.events,
+                filtered_requests,
+                session.metadata.started_at,
+            )
+
+            # Enrich events with network context
+            events = enrich_events_with_network(events, correlated_actions)
+
+            # Build network summary for LLM
+            network_summary = build_network_summary(correlated_actions)
+
         # Load prompt
         prompts = load_prompt()
 
@@ -255,6 +404,10 @@ async def convert_session_to_action(
             event_count=len(events),
             events_json=json.dumps(events, indent=2),
         )
+
+        # Add network summary if available
+        if network_summary:
+            events_content += f"\n\n**Network Activity:**\n{network_summary}"
 
         # Build messages: system instructions, user intent, then events
         messages: list[tuple[str, str]] = [

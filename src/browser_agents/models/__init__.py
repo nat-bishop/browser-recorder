@@ -8,8 +8,12 @@ Recording (raw events):
 
 Workflow (LLM-processed output):
 - workflow.py: ActionDefinition, ActionStep, ActionParameter for reusable workflows
+
+Correlation (event-network linking):
+- correlation.py: CorrelatedAction, RiskLevel for linking UI events with network effects
 """
 
+from .correlation import CorrelatedAction, RiskLevel
 from .events import UIEvent, UIEventType
 from .network import NetworkRequest
 from .session import RecordingSession, SessionMetadata, VideoInfo
@@ -35,4 +39,7 @@ __all__ = [
     "ActionParameter",
     "ActionStep",
     "StepAction",
+    # Correlation
+    "CorrelatedAction",
+    "RiskLevel",
 ]

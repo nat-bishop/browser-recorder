@@ -81,6 +81,19 @@ system_prompt: |
 
   Use {{param_name}} syntax in step values.
 
+  ## Network Context
+
+  Events may include network information showing what API calls were triggered:
+  - **triggered_api_calls**: List of API requests made by this action
+  - **risk_level**: "low", "medium", or "high" if action involves sensitive operations
+  - **risk_reason**: Explanation of why an action is flagged as risky
+  - **is_state_changing**: True if action triggers POST/PUT/PATCH/DELETE requests
+
+  Use this network context to:
+  - Understand what backend operations each UI action performs
+  - Write better step descriptions (e.g., "Click login button (triggers POST /api/auth)")
+  - Identify which steps involve sensitive data or state changes
+
   ## Output Requirements
 
   - **name**: snake_case, descriptive (e.g., login_user, search_products)

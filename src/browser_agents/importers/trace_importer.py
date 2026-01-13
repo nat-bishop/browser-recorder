@@ -141,6 +141,26 @@ def _parse_network_requests(network_data: str) -> list[NetworkRequest]:
         # Get content info
         content = response.get("content", {})
 
+        # Extract response body (with size limit)
+        max_body_size = 100 * 1024  # 100KB limit
+        response_body: bytes | None = None
+        body_text = content.get("text", "")
+        if body_text:
+            body_encoding = content.get("encoding", "")
+            if body_encoding == "base64":
+                import base64
+
+                try:
+                    response_body = base64.b64decode(body_text)
+                except Exception:
+                    response_body = None
+            else:
+                response_body = body_text.encode("utf-8", errors="replace")
+
+            # Truncate if too large
+            if response_body and len(response_body) > max_body_size:
+                response_body = response_body[:max_body_size]
+
         network_request = NetworkRequest(
             timestamp=timestamp,
             method=request.get("method", "GET"),
@@ -153,6 +173,7 @@ def _parse_network_requests(network_data: str) -> list[NetworkRequest]:
             response_headers=response_headers,
             request_body_size=request.get("bodySize"),
             response_body_size=response.get("bodySize"),
+            response_body=response_body,
         )
         requests.append(network_request)
 
@@ -187,6 +208,10 @@ def import_trace(trace_path: Path) -> RecordingSession:
     base_time_ms: float | None = None  # For relative timestamps
     source_url: str = ""
 
+    # Time base from context-options (for converting monotonicTime to absolute)
+    context_wall_time: float | None = None  # Absolute time in ms (Unix timestamp)
+    context_monotonic_time: float | None = None  # Relative browser time in ms
+
     # Valid class names by trace format
     valid_classes = {
         "action": {"Locator", "Page", "Keyboard"},  # playwright-crx
@@ -204,6 +229,20 @@ def import_trace(trace_path: Path) -> RecordingSession:
         # Parse trace.trace (NDJSON format)
         trace_data = z.read("trace.trace").decode("utf-8")
 
+        # First pass: extract time base from context-options entry
+        for line in trace_data.splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("type") == "context-options":
+                context_wall_time = entry.get("wallTime")
+                context_monotonic_time = entry.get("monotonicTime")
+                break
+
+        # Second pass: parse events
         for line in trace_data.splitlines():
             if not line.strip():
                 continue
@@ -232,13 +271,21 @@ def import_trace(trace_path: Path) -> RecordingSession:
             if base_time_ms is None:
                 base_time_ms = start_time_ms
 
-            # Timestamp: native format uses wallTime, crx uses startTime directly
+            # Calculate absolute timestamp from monotonicTime
+            # Priority: wallTime in entry > computed from context > fallback
             wall_time = entry.get("wallTime")
             if wall_time:
+                # Entry has its own wallTime (some formats include this)
                 timestamp = datetime.fromtimestamp(wall_time / 1000, tz=UTC)
-            elif entry_type == "action":
-                timestamp = datetime.fromtimestamp(start_time_ms / 1000, tz=UTC)
+            elif context_wall_time is not None and context_monotonic_time is not None:
+                # Compute from context-options time base
+                # absolute_ms = context_wallTime + (startTime - context_monotonicTime)
+                absolute_ms = context_wall_time + (
+                    start_time_ms - context_monotonic_time
+                )
+                timestamp = datetime.fromtimestamp(absolute_ms / 1000, tz=UTC)
             else:
+                # Fallback: use current time (shouldn't happen with valid traces)
                 timestamp = datetime.now(tz=UTC)
 
             if method == "goto":

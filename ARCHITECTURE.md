@@ -13,13 +13,14 @@ flowchart LR
 
     subgraph Playback
         S -->|Load| SE[SessionExecutor]
-        SE -->|SelectorResolver| B[Browser]
+        SE --> B[Browser]
     end
 
     subgraph Conversion
         S -->|Load| C[converter.py]
         C -->|Preprocess| PP[Collapsed Events]
-        PP -->|Prompt| L[llm.py]
+        PP -->|Correlate| CR[correlation.py]
+        CR -->|Enriched Events| L[llm.py]
         L -->|LLM| O[Local/Cloud LLM]
         O -->|Structured Output| AD[ActionDefinition]
     end
@@ -77,9 +78,10 @@ Pydantic models for recording sessions:
 | Module | Models |
 |--------|--------|
 | `events.py` | `UIEvent`, `UIEventType` (11 event types) |
-| `network.py` | `NetworkRequest` (captured HTTP traffic) |
+| `network.py` | `NetworkRequest` (captured HTTP traffic with response body) |
 | `session.py` | `RecordingSession`, `SessionMetadata`, `VideoInfo` |
 | `workflow.py` | `ActionDefinition`, `ActionStep`, `ActionParameter` |
+| `correlation.py` | `CorrelatedAction`, `RiskLevel` |
 
 **UIEventType** - 11 event types:
 - Mouse: `click`, `double_click`, `right_click`
@@ -108,16 +110,42 @@ Session replay:
 |--------|-------|---------|
 | `session_store.py` | `SessionStore` | Load/save sessions to `sessions/` |
 
+### Network Correlation: `correlation.py`
+
+Links UI events to the network requests they trigger. Used by the converter to give the LLM richer context about what each action does.
+
+**Core functions:**
+- `filter_network_requests()` - Removes static assets (JS, CSS, images, fonts) and analytics domains (Google Analytics, Segment, etc.)
+- `correlate_events_with_network()` - Matches requests to events using timestamp windows (2s default, bounded by next event)
+- `compute_risk()` - Detects dangerous operations by analyzing HTTP methods, URL patterns, and response body content
+
+**Risk detection:**
+| Level | Triggers |
+|-------|----------|
+| HIGH | DELETE requests, payment/checkout/admin URLs, credit card/SSN patterns in body |
+| MEDIUM | Auth/login/password/settings URLs |
+| LOW | POST/PUT/PATCH without dangerous patterns |
+| NONE | GET requests, static pages |
+
+**CorrelatedAction model** combines:
+- The UI event that triggered activity
+- Network requests that resulted
+- Extracted API endpoints
+- Computed risk level and reason
+
 ### Conversion: `converter.py`
 
 Transforms session recordings to ActionDefinitions:
 1. Load session from `sessions/` directory
 2. `preprocess_events()` - Collapse keystrokes, remove scrolls, dedupe navigations
-3. Load prompt from `prompts/convert_session.yaml`
-4. Call LLM with structured output (Pydantic schema)
-5. Validate and return ActionDefinition
+3. Network correlation (optional) - Link events to API calls, compute risk levels
+4. Load prompt from `prompts/convert_session.yaml`
+5. Call LLM with structured output (Pydantic schema)
+6. Validate and return ActionDefinition
 
-**Key pattern**: Preprocessing reduces 100+ keystroke events to ~10 logical steps.
+**Key patterns:**
+- Preprocessing reduces 100+ keystroke events to ~10 logical steps
+- Network enrichment adds API context to events (e.g., "clicked Submit -> POST /api/login")
 
 ### LLM: `llm.py`
 
@@ -169,6 +197,10 @@ SessionStore.load() → RecordingSession model
     ↓
 preprocess_events() → simplified event list
     ↓
+correlate_events_with_network() → CorrelatedAction list
+    ↓
+enrich_events_with_network() → events with API context
+    ↓
 Format with YAML prompt template
     ↓
 get_structured_llm(ActionDefinition)
@@ -189,6 +221,7 @@ Save to sessions/{id}/processed/workflow.json
 | Storage format | Session JSON | Events + multi-selector candidates + metadata |
 | LLM input | Preprocessed | Raw recordings too verbose (100+ events) |
 | LLM output | Structured | Pydantic validation guaranteed |
+| Network correlation | Timestamp windows | Simple heuristic that works for most UI patterns |
 | Error handling | Return strings | Simpler async control flow |
 
 ## Validation Boundaries
@@ -237,10 +270,11 @@ Imported trace.zip files convert to `RecordingSession`:
   "network_requests": [
     {
       "timestamp": "2024-12-21T10:00:02Z",
-      "method": "GET",
-      "url": "https://example.com/api/data",
+      "method": "POST",
+      "url": "https://example.com/api/login",
       "status": 200,
-      "duration_ms": 45.2
+      "duration_ms": 45.2,
+      "response_body": "base64-encoded (limited to 100KB)"
     }
   ]
 }

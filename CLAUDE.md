@@ -23,11 +23,13 @@ browser-agents/
 │   ├── converter.py     # Session → ActionDefinition via LLM
 │   ├── demo.py          # Visual demo mode (cursor, smooth movement)
 │   ├── llm.py           # LLM factory for Ollama/Anthropic/OpenAI
+│   ├── correlation.py   # Event-network linking and risk detection
 │   ├── models/          # Pydantic models package
 │   │   ├── __init__.py  # Exports all models
 │   │   ├── events.py    # UIEvent, UIEventType (11 event types)
 │   │   ├── network.py   # NetworkRequest (captured HTTP traffic)
 │   │   ├── session.py   # RecordingSession, SessionMetadata
+│   │   ├── correlation.py  # CorrelatedAction, RiskLevel
 │   │   └── workflow.py  # ActionDefinition, ActionStep
 │   ├── playback/        # Session playback package
 │   │   ├── __init__.py
@@ -105,6 +107,7 @@ uv run pytest --cov=browser_agents
 | `test_models.py` | Model validation (UIEvent, NetworkRequest, etc.) |
 | `test_cli.py` | CLI argument handling |
 | `test_preprocessing.py` | Event preprocessing |
+| `test_correlation.py` | Network filtering, event correlation, risk detection |
 
 ### Writing Tests
 
@@ -158,7 +161,7 @@ uv run git-cliff -o CHANGELOG.md
 
 **NetworkRequest model:**
 - Captured HTTP requests from trace.network (HAR format)
-- Includes: method, url, status, headers, timing
+- Includes: method, url, status, headers, timing, response_body (limited to 100KB)
 
 ### Playwright Trace Format (trace.zip)
 

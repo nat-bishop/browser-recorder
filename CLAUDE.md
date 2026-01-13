@@ -37,32 +37,33 @@ browser-agents/
 │   ├── storage/         # Session storage package
 │   │   ├── __init__.py
 │   │   └── session_store.py  # SessionStore for sessions/
-│   ├── recorder.py      # Event capture via injected JS (unused, for reference)
-│   ├── js/              # Shared JavaScript
-│   │   └── selector-generator.js  # Codegen-style selectors
+│   ├── importers/       # Import from various recording formats
+│   │   ├── __init__.py
+│   │   └── trace_importer.py  # Import playwright-crx trace.zip
 │   └── prompts/
 │       ├── convert_session.yaml    # LLM prompt for session conversion
 │       └── diagnose_error.yaml     # LLM prompt for error diagnosis
-├── browser-recorder-extension/  # Chrome Extension (primary recording method)
-│   ├── manifest.json    # MV3 config
-│   ├── background.js    # Service worker
-│   ├── content.js       # Event capture
-│   ├── selector-generator.js  # Codegen-style selectors
-│   ├── popup.html/js    # UI
-│   └── icons/
+├── recorder/            # Playwright-crx based recorder (Chrome extension)
+│   ├── src/             # TypeScript source
+│   ├── playwright/      # Playwright as git subtree
+│   ├── extension/       # Built Chrome extension (load dist/ in Chrome)
+│   └── package.json
 ├── tests/
 │   ├── conftest.py      # Shared fixtures (session-based)
 │   ├── test_cli.py      # CLI tests - argument handling
 │   ├── test_models.py   # Unit tests - models (UIEvent, SelectorCandidate)
 │   ├── test_preprocessing.py  # Event preprocessing tests
 │   └── test_selector_resolver.py  # Selector resolution tests
-└── sessions/            # Chrome extension sessions storage
+└── sessions/            # Session storage
 ```
 
 ## CLI Usage
 
 ```bash
-# Import session from Chrome extension export
+# Import from playwright-crx trace.zip (recommended)
+uv run browser-agents import-trace ~/Downloads/trace.zip
+
+# Import session from legacy Chrome extension export
 uv run browser-agents import-session ~/Downloads/session.json
 
 # List all sessions
@@ -72,11 +73,29 @@ uv run browser-agents list-sessions
 uv run browser-agents replay-session sessions/sess_abc123
 uv run browser-agents replay-session sessions/sess_abc123 --safe --mode warn
 
+# Replay with tracing (saves trace.zip for debugging)
+uv run browser-agents replay-session sessions/sess_abc123 --trace
+
 # Convert session to ActionDefinition via LLM
 uv run browser-agents convert-session sessions/sess_abc123 -d "Login and checkout"
 
 # Help
 uv run browser-agents --help
+```
+
+## Recording with playwright-crx
+
+```bash
+# Build the recorder extension (one-time)
+cd recorder && npm install && npm run build
+
+# Load extension in Chrome:
+# 1. Go to chrome://extensions
+# 2. Enable Developer mode
+# 3. Load unpacked: recorder/extension/dist
+
+# Record, then export trace.zip and import:
+uv run browser-agents import-trace ~/Downloads/trace.zip
 ```
 
 ## Testing
@@ -141,17 +160,24 @@ uv run git-cliff -o CHANGELOG.md
 
 ## Data Formats
 
-### Sessions (Chrome Extension - `sessions/`)
+### Sessions (`sessions/`)
 
 **RecordingSession model:**
 - Stored in `sessions/{id}/session.json`
 - Contains: metadata + UIEvents with multi-selector candidates
 - Converted output in `sessions/{id}/processed/workflow.json`
+- Replay traces in `sessions/{id}/replay_trace.zip`
 
 **UIEvent model:**
 - 11 event types: `click`, `double_click`, `right_click`, `type`, `clear`, `select_option`, `check`, `uncheck`, `scroll`, `navigate`, `key_press`
 - Multiple `SelectorCandidate` per event (Codegen-style)
 - Selector priority: role > label > placeholder > text > testid > css
+
+### Playwright Trace Format (trace.zip)
+
+- `trace.trace` - NDJSON with action events
+- `trace.network` - NDJSON with network requests
+- `resources/` - Screenshots, DOM snapshots
 
 ## Windows Console Encoding
 

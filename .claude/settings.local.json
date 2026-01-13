@@ -18,7 +18,9 @@
       "Bash(ls:*)",
       "Bash(mkdir:*)",
       "mcp__langfuse-docs__searchLangfuseDocs",
-      "mcp__docs-langchain__SearchDocsByLangChain"
+      "mcp__docs-langchain__SearchDocsByLangChain",
+      "Bash(find:*)",
+      "Bash(tree:*)"
     ]
   }
 }

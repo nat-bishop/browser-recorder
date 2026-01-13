@@ -1,6 +1,7 @@
 """CLI for browser-agents session recording and playback.
 
 Usage:
+    browser-agents import-trace <file>       Import from playwright-crx trace.zip
     browser-agents import-session <file>     Import session from Chrome extension
     browser-agents replay-session <path>     Replay a session
     browser-agents convert-session <path>    Convert session to action definition
@@ -41,6 +42,12 @@ def replay_session(
         "-m",
         help="Safe mode type: block (abort requests), warn (log but allow), mock (fake success)",
     ),
+    trace: bool = typer.Option(
+        False,
+        "--trace",
+        "-t",
+        help="Enable Playwright tracing (saves trace.zip for debugging)",
+    ),
 ) -> None:
     """Replay a recording session using Codegen-style selectors.
 
@@ -53,6 +60,7 @@ def replay_session(
         browser-agents replay-session sessions/sess_abc123/session.json
         browser-agents replay-session sessions/sess_abc123 --safe
         browser-agents replay-session sessions/sess_abc123 --safe --mode warn
+        browser-agents replay-session sessions/sess_abc123 --trace
     """
     from browser_agents.playback import (
         PlaybackError,
@@ -115,6 +123,15 @@ def replay_session(
     # Need to import here to avoid circular import issues
     from browser_agents.models import UIEvent
 
+    # Determine trace output path
+    trace_path: Path | None = None
+    if trace:
+        if session_path.is_dir():
+            trace_path = session_path / "replay_trace.zip"
+        else:
+            trace_path = session_path.parent / "replay_trace.zip"
+        typer.echo(f"Tracing enabled: {trace_path}")
+
     async def run_replay() -> tuple[int, int]:
         from playwright.async_api import async_playwright
 
@@ -123,40 +140,51 @@ def replay_session(
             context = await browser.new_context()
             page = await context.new_page()
 
-            # Set up safe replay if enabled
-            safe_controller = None
-            if replay_mode != SafeReplayMode.LIVE:
-                safe_controller = SafeReplayController(page, replay_mode)
-                await safe_controller.setup()
+            # Start tracing if enabled
+            if trace:
+                await context.tracing.start(screenshots=True, snapshots=True)
 
-            # Navigate to start URL
-            await page.goto(session.metadata.source_url)
-
-            # Create executor
-            executor = SessionExecutor(page, delay_ms=delay, on_event=on_event)
-
-            # Replay
             success = 0
             failed = 0
-            for i, event in enumerate(session.events):
-                try:
-                    on_event(event, i, len(session.events))
-                    await executor.replay_event(event)
-                    success += 1
-                except PlaybackError as e:
-                    typer.echo(f"    [FAILED] {e}", err=True)
-                    failed += 1
-                except Exception as e:
-                    typer.echo(f"    [ERROR] {e}", err=True)
-                    failed += 1
+            try:
+                # Set up safe replay if enabled
+                safe_controller = None
+                if replay_mode != SafeReplayMode.LIVE:
+                    safe_controller = SafeReplayController(page, replay_mode)
+                    await safe_controller.setup()
 
-            # Print safe replay report
-            if safe_controller:
-                report = safe_controller.get_report()
-                if report["blocked_count"] > 0:
-                    typer.echo(
-                        f"\nSafe replay blocked {report['blocked_count']} requests"
-                    )
+                # Navigate to start URL
+                await page.goto(session.metadata.source_url)
+
+                # Create executor
+                executor = SessionExecutor(page, delay_ms=delay, on_event=on_event)
+
+                # Replay
+                for i, event in enumerate(session.events):
+                    try:
+                        on_event(event, i, len(session.events))
+                        await executor.replay_event(event)
+                        success += 1
+                    except PlaybackError as e:
+                        typer.echo(f"    [FAILED] {e}", err=True)
+                        failed += 1
+                    except Exception as e:
+                        typer.echo(f"    [ERROR] {e}", err=True)
+                        failed += 1
+
+                # Print safe replay report
+                if safe_controller:
+                    report = safe_controller.get_report()
+                    if report["blocked_count"] > 0:
+                        typer.echo(
+                            f"\nSafe replay blocked {report['blocked_count']} requests"
+                        )
+            finally:
+                # Stop tracing and save (even on error)
+                if trace and trace_path:
+                    await context.tracing.stop(path=str(trace_path))
+                    typer.echo(f"\nTrace saved to: {trace_path}")
+                    typer.echo(f"View with: npx playwright show-trace {trace_path}")
 
             await browser.close()
             return success, failed
@@ -226,6 +254,62 @@ def import_session(
     typer.echo(f"  Source: {session.metadata.source_url}")
     if session.metadata.video:
         typer.echo(f"  Video: {session.metadata.video.path}")
+
+
+@app.command(name="import-trace")
+def import_trace_cmd(
+    trace_path: Path = typer.Argument(
+        ..., help="Path to trace.zip from playwright-crx"
+    ),
+    output_dir: Path = typer.Option(
+        Path("sessions"), "--output", "-o", help="Output directory"
+    ),
+) -> None:
+    """Import a recording from playwright-crx trace.zip file.
+
+    Parses the trace.zip file generated by playwright-crx recorder and
+    converts it to the browser-agents session format.
+
+    Examples:
+        browser-agents import-trace ~/Downloads/trace.zip
+        browser-agents import-trace recording.zip -o ./my-sessions
+    """
+    from browser_agents.importers.trace_importer import import_trace
+
+    if not trace_path.exists():
+        typer.echo(f"Trace file not found: {trace_path}", err=True)
+        raise typer.Exit(1)
+
+    if trace_path.suffix != ".zip":
+        typer.echo(f"Expected .zip file, got: {trace_path.suffix}", err=True)
+        raise typer.Exit(1)
+
+    # Import trace
+    typer.echo(f"Importing trace: {trace_path}")
+    try:
+        session = import_trace(trace_path)
+    except Exception as e:
+        typer.echo(f"Failed to import trace: {e}", err=True)
+        raise typer.Exit(1)
+
+    if not session.events:
+        typer.echo("Warning: No events found in trace", err=True)
+
+    # Create session directory
+    session_dir = output_dir / session.metadata.id
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create media directory
+    (session_dir / "media").mkdir(exist_ok=True)
+
+    # Save session
+    output_file = session_dir / "session.json"
+    output_file.write_text(session.model_dump_json(indent=2), encoding="utf-8")
+
+    typer.echo(f"Imported session to: {session_dir}")
+    typer.echo(f"  ID: {session.metadata.id}")
+    typer.echo(f"  Events: {len(session.events)}")
+    typer.echo(f"  Source: {session.metadata.source_url}")
 
 
 @app.command(name="convert-session")

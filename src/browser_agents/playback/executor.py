@@ -4,8 +4,6 @@ Replays recorded UIEvents using Playwright selectors.
 Fails explicitly if selector doesn't match - no fallback to coordinates.
 """
 
-from collections.abc import Callable
-
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
@@ -33,7 +31,6 @@ class SessionExecutor:
     - Uses Playwright's selector resolution directly
     - Fails explicitly if selector doesn't match
     - Configurable delay between events
-    - Progress callback support
     - Configurable navigation wait strategy
     """
 
@@ -41,7 +38,6 @@ class SessionExecutor:
         self,
         page: Page,
         delay_ms: int = DEFAULT_DELAY_MS,
-        on_event: Callable[[UIEvent, int, int], None] | None = None,
         wait_until: str = "domcontentloaded",
     ) -> None:
         """Initialize the executor.
@@ -49,13 +45,11 @@ class SessionExecutor:
         Args:
             page: Playwright page to execute on.
             delay_ms: Delay between events in milliseconds.
-            on_event: Callback(event, index, total) called before each event.
             wait_until: Navigation wait strategy ("load", "domcontentloaded",
                 "networkidle", "commit"). Default "domcontentloaded".
         """
         self.page = page
         self.delay_ms = delay_ms
-        self.on_event = on_event
         self.wait_until = wait_until
 
     async def replay_event(self, event: UIEvent) -> None:

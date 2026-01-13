@@ -157,7 +157,7 @@ def replay_session(
                 await page.goto(session.metadata.source_url)
 
                 # Create executor and replay events
-                executor = SessionExecutor(page, delay_ms=delay, on_event=on_event)
+                executor = SessionExecutor(page, delay_ms=delay)
                 for i, event in enumerate(session.events):
                     try:
                         on_event(event, i, len(session.events))
@@ -252,6 +252,40 @@ def import_session(
         typer.echo(f"  Video: {session.metadata.video.path}")
 
 
+def _import_and_save_trace(
+    trace_path: Path, output_dir: Path, verbose: bool = True
+) -> Path:
+    """Import a trace.zip and save as a session. Returns session directory."""
+    import shutil
+
+    from browser_agents.importers.trace_importer import import_trace
+
+    session = import_trace(trace_path)
+
+    if not session.events and verbose:
+        typer.echo("Warning: No events found in trace", err=True)
+
+    # Create session and media directories
+    session_dir = output_dir / session.metadata.id
+    _create_session_directories(session_dir)
+
+    # Copy original trace.zip and save session
+    shutil.copy(trace_path, session_dir / "trace.zip")
+    (session_dir / "session.json").write_text(
+        session.model_dump_json(indent=2), encoding="utf-8"
+    )
+
+    if verbose:
+        typer.echo(f"Imported session to: {session_dir}")
+        typer.echo(f"  ID: {session.metadata.id}")
+        typer.echo(f"  Events: {len(session.events)}")
+        typer.echo(f"  Network requests: {len(session.network_requests)}")
+        typer.echo(f"  Source: {session.metadata.source_url}")
+        typer.echo(f"  Trace: {session_dir / 'trace.zip'}")
+
+    return session_dir
+
+
 @app.command(name="import-trace")
 def import_trace_cmd(
     trace_path: Path = typer.Argument(
@@ -270,10 +304,6 @@ def import_trace_cmd(
         browser-agents import-trace ~/Downloads/trace.zip
         browser-agents import-trace recording.zip -o ./my-sessions
     """
-    import shutil
-
-    from browser_agents.importers.trace_importer import import_trace
-
     if not trace_path.exists():
         typer.echo(f"Trace file not found: {trace_path}", err=True)
         raise typer.Exit(1)
@@ -282,35 +312,12 @@ def import_trace_cmd(
         typer.echo(f"Expected .zip file, got: {trace_path.suffix}", err=True)
         raise typer.Exit(1)
 
-    # Import trace
     typer.echo(f"Importing trace: {trace_path}")
     try:
-        session = import_trace(trace_path)
+        _import_and_save_trace(trace_path, output_dir)
     except Exception as e:
         typer.echo(f"Failed to import trace: {e}", err=True)
         raise typer.Exit(1)
-
-    if not session.events:
-        typer.echo("Warning: No events found in trace", err=True)
-
-    # Create session and media directories
-    session_dir = output_dir / session.metadata.id
-    _create_session_directories(session_dir)
-
-    # Copy original trace.zip to session folder
-    trace_dest = session_dir / "trace.zip"
-    shutil.copy(trace_path, trace_dest)
-
-    # Save session
-    output_file = session_dir / "session.json"
-    output_file.write_text(session.model_dump_json(indent=2), encoding="utf-8")
-
-    typer.echo(f"Imported session to: {session_dir}")
-    typer.echo(f"  ID: {session.metadata.id}")
-    typer.echo(f"  Events: {len(session.events)}")
-    typer.echo(f"  Network requests: {len(session.network_requests)}")
-    typer.echo(f"  Source: {session.metadata.source_url}")
-    typer.echo(f"  Trace: {trace_dest}")
 
 
 @app.command(name="record")
@@ -340,9 +347,6 @@ def record(
         browser-agents record --port 9223
         browser-agents record -o my_trace.zip --no-import
     """
-    import shutil
-
-    from browser_agents.importers.trace_importer import import_trace
 
     async def record_impl() -> None:
         from playwright.async_api import async_playwright
@@ -391,28 +395,10 @@ def record(
     if auto_import:
         typer.echo("\nImporting trace...")
         try:
-            session = import_trace(output)
+            _import_and_save_trace(output, output_dir)
         except Exception as e:
             typer.echo(f"Failed to import trace: {e}", err=True)
             typer.echo("Trace file saved but not imported.")
-            return
-
-        session_dir = output_dir / session.metadata.id
-        _create_session_directories(session_dir)
-
-        # Copy trace to session folder
-        trace_dest = session_dir / "trace.zip"
-        shutil.copy(output, trace_dest)
-
-        # Save session
-        session_file = session_dir / "session.json"
-        session_file.write_text(session.model_dump_json(indent=2), encoding="utf-8")
-
-        typer.echo(f"Imported session to: {session_dir}")
-        typer.echo(f"  ID: {session.metadata.id}")
-        typer.echo(f"  Events: {len(session.events)}")
-        typer.echo(f"  Network requests: {len(session.network_requests)}")
-        typer.echo(f"  Source: {session.metadata.source_url}")
 
 
 @app.command(name="launch-chrome")

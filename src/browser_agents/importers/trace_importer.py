@@ -187,6 +187,12 @@ def import_trace(trace_path: Path) -> RecordingSession:
     base_time_ms: float | None = None  # For relative timestamps
     source_url: str = ""
 
+    # Valid class names by trace format
+    valid_classes = {
+        "action": {"Locator", "Page", "Keyboard"},  # playwright-crx
+        "before": {"Frame", "Locator", "Page", "Keyboard"},  # native Playwright
+    }
+
     with zipfile.ZipFile(trace_path) as z:
         # Parse trace.network if present
         try:
@@ -208,83 +214,48 @@ def import_trace(trace_path: Path) -> RecordingSession:
                 continue  # Skip malformed lines
 
             entry_type = entry.get("type", "")
-            method = entry.get("method", "")
+            if entry_type not in valid_classes:
+                continue
+
             class_name = entry.get("class", "")
+            if class_name not in valid_classes[entry_type]:
+                continue
+
+            method = entry.get("method", "")
+            event_type = METHOD_MAP.get(method)
+            if not event_type:
+                continue
+
             params = entry.get("params", {})
+            start_time_ms = entry.get("startTime", 0)
 
-            # playwright-crx format: type="action"
-            if entry_type == "action":
-                if class_name not in ("Locator", "Page", "Keyboard"):
-                    continue
+            if base_time_ms is None:
+                base_time_ms = start_time_ms
 
-                event_type = METHOD_MAP.get(method)
-                if not event_type:
-                    continue
-
-                # Parse timestamp (playwright-crx uses milliseconds since epoch)
-                start_time_ms = entry.get("startTime", 0)
+            # Timestamp: native format uses wallTime, crx uses startTime directly
+            wall_time = entry.get("wallTime")
+            if wall_time:
+                timestamp = datetime.fromtimestamp(wall_time / 1000, tz=UTC)
+            elif entry_type == "action":
                 timestamp = datetime.fromtimestamp(start_time_ms / 1000, tz=UTC)
+            else:
+                timestamp = datetime.now(tz=UTC)
 
-                if base_time_ms is None:
-                    base_time_ms = start_time_ms
+            if method == "goto":
+                source_url = params.get("url", source_url)
 
-                if method == "goto":
-                    source_url = params.get("url", source_url)
-
-                selector = parse_playwright_selector(params.get("selector", ""))
-
-                event = UIEvent(
+            events.append(
+                UIEvent(
                     id=str(uuid4()),
                     timestamp=timestamp,
                     relative_time_ms=int(start_time_ms - base_time_ms),
                     event_type=event_type,
                     url=source_url,
-                    selector=selector,
+                    selector=parse_playwright_selector(params.get("selector", "")),
                     value=params.get("value"),
                     key=params.get("key"),
                 )
-                events.append(event)
-
-            # Playwright native format: type="before" marks action start
-            elif entry_type == "before":
-                if class_name not in ("Frame", "Locator", "Page", "Keyboard"):
-                    continue
-
-                event_type = METHOD_MAP.get(method)
-                if not event_type:
-                    continue
-
-                # Native traces use startTime as relative ms from session start
-                start_time_ms = entry.get("startTime", 0)
-
-                if base_time_ms is None:
-                    base_time_ms = start_time_ms
-
-                # For native traces, we need wallTime for absolute timestamp
-                # If not available, use relative time from a base
-                wall_time = entry.get("wallTime")
-                if wall_time:
-                    timestamp = datetime.fromtimestamp(wall_time / 1000, tz=UTC)
-                else:
-                    # Fallback: use current time adjusted by relative offset
-                    timestamp = datetime.now(tz=UTC)
-
-                if method == "goto":
-                    source_url = params.get("url", source_url)
-
-                selector = parse_playwright_selector(params.get("selector", ""))
-
-                event = UIEvent(
-                    id=str(uuid4()),
-                    timestamp=timestamp,
-                    relative_time_ms=int(start_time_ms - base_time_ms),
-                    event_type=event_type,
-                    url=source_url,
-                    selector=selector,
-                    value=params.get("value"),
-                    key=params.get("key"),
-                )
-                events.append(event)
+            )
 
     # Create session
     session_id = f"sess_{uuid4().hex[:12]}"

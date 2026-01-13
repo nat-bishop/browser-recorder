@@ -81,38 +81,42 @@ SENSITIVE_BODY_PATTERNS = [
     r"(api[_-]?key|secret|token|password)[\"']?\s*[:=]",  # API keys/secrets
 ]
 
+# HTTP methods that modify server state
+STATE_CHANGING_METHODS = frozenset(("POST", "PUT", "PATCH", "DELETE"))
+
+
+def _has_state_changing_request(requests: list[NetworkRequest]) -> bool:
+    """Check if any request uses a state-changing HTTP method."""
+    return any(r.method in STATE_CHANGING_METHODS for r in requests)
+
+
+def _is_static_asset(req: NetworkRequest) -> bool:
+    """Check if request is for a static asset based on MIME type."""
+    if not req.mime_type:
+        return False
+    mime_lower = req.mime_type.lower()
+    return any(mime in mime_lower for mime in STATIC_ASSET_MIMES)
+
+
+def _is_analytics_request(req: NetworkRequest) -> bool:
+    """Check if request is to an analytics/tracking domain."""
+    try:
+        domain = urlparse(req.url).netloc.lower()
+        return any(analytics in domain for analytics in ANALYTICS_DOMAINS)
+    except Exception:
+        return False
+
 
 def filter_network_requests(requests: list[NetworkRequest]) -> list[NetworkRequest]:
     """Filter out static assets and analytics requests.
 
     Keeps only meaningful requests: API calls, page loads, form submissions.
-
-    Args:
-        requests: Raw list of network requests
-
-    Returns:
-        Filtered list with static assets and analytics removed
     """
-    filtered = []
-    for req in requests:
-        # Skip static assets by MIME type
-        if req.mime_type:
-            mime_lower = req.mime_type.lower()
-            if any(mime in mime_lower for mime in STATIC_ASSET_MIMES):
-                continue
-
-        # Skip analytics/tracking domains
-        try:
-            parsed = urlparse(req.url)
-            domain = parsed.netloc.lower()
-            if any(analytics in domain for analytics in ANALYTICS_DOMAINS):
-                continue
-        except Exception:
-            pass  # Keep request if URL parsing fails
-
-        filtered.append(req)
-
-    return filtered
+    return [
+        req
+        for req in requests
+        if not _is_static_asset(req) and not _is_analytics_request(req)
+    ]
 
 
 def extract_api_endpoints(requests: list[NetworkRequest]) -> list[str]:
@@ -139,20 +143,6 @@ def extract_api_endpoints(requests: list[NetworkRequest]) -> list[str]:
     return sorted(endpoints)
 
 
-# Risk level ordering for comparison
-_RISK_ORDER = {
-    RiskLevel.NONE: 0,
-    RiskLevel.LOW: 1,
-    RiskLevel.MEDIUM: 2,
-    RiskLevel.HIGH: 3,
-}
-
-
-def _risk_level_greater(a: RiskLevel, b: RiskLevel) -> bool:
-    """Check if risk level a is greater than risk level b."""
-    return _RISK_ORDER[a] > _RISK_ORDER[b]
-
-
 def compute_risk(requests: list[NetworkRequest]) -> tuple[RiskLevel, str | None]:
     """Compute risk level from network requests.
 
@@ -173,11 +163,11 @@ def compute_risk(requests: list[NetworkRequest]) -> tuple[RiskLevel, str | None]
 
         # Check HTTP method
         if req.method == "DELETE":
-            if _risk_level_greater(RiskLevel.HIGH, max_risk):
+            if max_risk < RiskLevel.HIGH:
                 max_risk = RiskLevel.HIGH
             reasons.append(f"DELETE request to {req.url[:50]}")
         elif req.method in ("POST", "PUT", "PATCH"):
-            if _risk_level_greater(RiskLevel.LOW, max_risk):
+            if max_risk < RiskLevel.LOW:
                 max_risk = RiskLevel.LOW
 
         # Check URL patterns for high risk
@@ -188,10 +178,10 @@ def compute_risk(requests: list[NetworkRequest]) -> tuple[RiskLevel, str | None]
                 break
 
         # Check URL patterns for medium risk
-        if max_risk != RiskLevel.HIGH:
+        if max_risk < RiskLevel.HIGH:
             for pattern in MEDIUM_RISK_PATTERNS:
                 if re.search(pattern, url_lower):
-                    if _risk_level_greater(RiskLevel.MEDIUM, max_risk):
+                    if max_risk < RiskLevel.MEDIUM:
                         max_risk = RiskLevel.MEDIUM
                     reasons.append(f"Sensitive endpoint: {pattern}")
                     break
@@ -241,9 +231,7 @@ def correlate_events_with_network(
                     event=None,
                     network_requests=requests,
                     api_endpoints=extract_api_endpoints(requests),
-                    is_state_changing=any(
-                        r.method in ("POST", "PUT", "PATCH", "DELETE") for r in requests
-                    ),
+                    is_state_changing=_has_state_changing_request(requests),
                     risk_level=risk_level,
                     risk_reason=risk_reason,
                 )
@@ -269,10 +257,7 @@ def correlate_events_with_network(
                 event=None,  # No UI event - initial load
                 network_requests=initial_requests,
                 api_endpoints=extract_api_endpoints(initial_requests),
-                is_state_changing=any(
-                    r.method in ("POST", "PUT", "PATCH", "DELETE")
-                    for r in initial_requests
-                ),
+                is_state_changing=_has_state_changing_request(initial_requests),
                 risk_level=risk_level,
                 risk_reason=risk_reason,
             )
@@ -305,9 +290,7 @@ def correlate_events_with_network(
                 event=event,
                 network_requests=triggered,
                 api_endpoints=extract_api_endpoints(triggered),
-                is_state_changing=any(
-                    r.method in ("POST", "PUT", "PATCH", "DELETE") for r in triggered
-                ),
+                is_state_changing=_has_state_changing_request(triggered),
                 risk_level=risk_level,
                 risk_reason=risk_reason,
             )

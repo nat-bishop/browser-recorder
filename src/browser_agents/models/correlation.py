@@ -1,6 +1,6 @@
 """Correlation models for linking UI events with network requests."""
 
-from enum import Enum
+from enum import IntEnum
 
 from pydantic import BaseModel, Field
 
@@ -8,13 +8,16 @@ from browser_agents.models.events import UIEvent
 from browser_agents.models.network import NetworkRequest
 
 
-class RiskLevel(str, Enum):
-    """Risk level for network-based danger detection."""
+class RiskLevel(IntEnum):
+    """Risk level for network-based danger detection.
 
-    NONE = "none"  # GET requests, static pages
-    LOW = "low"  # Non-destructive POSTs
-    MEDIUM = "medium"  # Auth, profile changes
-    HIGH = "high"  # Financial, deletion, admin
+    IntEnum enables natural comparisons: RiskLevel.HIGH > RiskLevel.LOW
+    """
+
+    NONE = 0  # GET requests, static pages
+    LOW = 1  # Non-destructive POSTs
+    MEDIUM = 2  # Auth, profile changes
+    HIGH = 3  # Financial, deletion, admin
 
 
 class CorrelatedAction(BaseModel):

@@ -19,6 +19,7 @@ from browser_agents.llm import get_structured_llm
 from browser_agents.models import (
     ActionDefinition,
     RecordingSession,
+    RiskLevel,
     UIEvent,
     UIEventType,
 )
@@ -31,6 +32,14 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 # Limits for LLM context
 MAX_EVENTS = 100
 MIN_EVENTS = 2
+
+
+def _extract_path(url: str) -> str | None:
+    """Extract path from URL, returning None on parse failure."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    return parsed.path or None
 
 
 def load_session(path: Path) -> RecordingSession:
@@ -186,7 +195,6 @@ def enrich_events_with_network(
     Returns:
         Enriched event dicts with network context added
     """
-    from browser_agents.models import RiskLevel
 
     # Build lookup by event ID for accurate matching
     # This handles preprocessing that removes events (scroll, duplicate navigates)
@@ -238,7 +246,6 @@ def build_network_summary(correlated_actions: list["CorrelatedAction"]) -> str:
     Returns:
         Human-readable summary of network activity
     """
-    from browser_agents.models import RiskLevel
 
     # Collect unique API endpoints and their methods
     api_calls: dict[str, set[str]] = {}
@@ -255,16 +262,9 @@ def build_network_summary(correlated_actions: list["CorrelatedAction"]) -> str:
 
         for req in action.network_requests:
             if req.mime_type and "json" in req.mime_type.lower():
-                # Extract path from URL
-                from urllib.parse import urlparse
-
-                try:
-                    path = urlparse(req.url).path
-                    if path not in api_calls:
-                        api_calls[path] = set()
-                    api_calls[path].add(req.method)
-                except Exception:
-                    pass
+                path = _extract_path(req.url)
+                if path:
+                    api_calls.setdefault(path, set()).add(req.method)
 
     if not api_calls and not high_risk:
         return "No significant API calls detected during this recording."

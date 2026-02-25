@@ -1,7 +1,7 @@
 ---
 name: doc-drafter
-description: Use after implementing any feature, fix, or refactor to keep documentation synchronized with code. Updates README.md, IMPLEMENTATION_PLAN.md, and ARCHITECTURE.md as needed.
-tools: Glob, Grep, Read, Edit(README.md), Edit(ARCHITECTURE.md), Edit(IMPLEMENTATION_PLAN.md), Edit(CLAUDE.md), Bash(git diff:*), Bash(git log:*), Bash(git status:*)
+description: Use after implementing any feature, fix, or refactor to keep documentation synchronized with code. Updates README.md and ARCHITECTURE.md as needed.
+tools: Glob, Grep, Read, Edit(README.md), Edit(ARCHITECTURE.md), Edit(CLAUDE.md), Bash(git diff:*), Bash(git log:*), Bash(git status:*)
 model: inherit
 color: purple
 ---
@@ -13,7 +13,6 @@ You are a documentation specialist. Update docs to match code changes. Never wri
 **You may ONLY edit these files:**
 - README.md
 - ARCHITECTURE.md
-- IMPLEMENTATION_PLAN.md
 - CLAUDE.md (minor fixes only)
 
 **You must NEVER edit:**
@@ -23,7 +22,6 @@ You are a documentation specialist. Update docs to match code changes. Never wri
 
 1. **`git diff --stat`** - See what files changed
 2. **Update docs** - One file at a time, only if relevant
-3. **Check IMPLEMENTATION_PLAN.md** - Mark completed phases/items
 
 ## Writing Style
 
@@ -59,7 +57,6 @@ If it answers none, delete it.
 | File | When to Update |
 |------|----------------|
 | `README.md` | Major user-facing changes only. Front door, not manual - prefer links over explanations |
-| `IMPLEMENTATION_PLAN.md` | Check off completed phases/items |
 | `ARCHITECTURE.md` | New patterns only. Readable in ~10 min - if not, move detail or delete |
 | `CLAUDE.md` | Minor fixes: edit directly. Significant changes: propose |
 

@@ -21,7 +21,6 @@ browser-agents/
 │   ├── cli.py           # CLI entry point (session commands)
 │   ├── config.py        # Settings via pydantic-settings (.env support)
 │   ├── converter.py     # Session → ActionDefinition via LLM
-│   ├── demo.py          # Visual demo mode (cursor, smooth movement)
 │   ├── llm.py           # LLM factory for Ollama/Anthropic/OpenAI
 │   ├── correlation.py   # Event-network linking and risk detection
 │   ├── models/          # Pydantic models package
@@ -42,8 +41,7 @@ browser-agents/
 │   │   ├── __init__.py
 │   │   └── trace_importer.py  # Import playwright-crx trace.zip
 │   └── prompts/
-│       ├── convert_session.yaml    # LLM prompt for session conversion
-│       └── diagnose_error.yaml     # LLM prompt for error diagnosis
+│       └── convert_session.yaml    # LLM prompt for session conversion
 ├── recorder/            # Playwright-crx based recorder (Chrome extension)
 │   ├── src/             # TypeScript source
 │   ├── playwright/      # Playwright as git subtree
@@ -60,11 +58,10 @@ browser-agents/
 ## CLI Usage
 
 ```bash
-# Record directly via CDP (recommended)
+# Record a browser session
 uv run browser-agents launch-chrome --url https://example.com
-uv run browser-agents record  # Press Enter when done
-
-# Import from existing trace.zip
+# Press Shift+Alt+R to start recording, perform actions, Shift+Alt+R to stop
+# Save trace.zip from the recorder panel, then import:
 uv run browser-agents import-trace ~/Downloads/trace.zip
 
 # List all sessions

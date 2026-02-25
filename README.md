@@ -14,24 +14,21 @@ uv run playwright install chromium
 
 ## Recording
 
-### Option 1: Record via CDP (recommended)
-
 ```bash
-# Launch Chrome with debugging port
+# Launch Chrome with recorder extension
 uv run browser-agents launch-chrome --url https://example.com
 
-# Start recording (keeps connection alive)
-uv run browser-agents record
+# In Chrome:
+# 1. Press Shift+Alt+R to start recording
+# 2. Perform your actions in the browser
+# 3. Press Shift+Alt+R to stop recording
+# 4. Save trace.zip from the recorder panel
 
-# Perform actions in the browser, then press Enter to stop
-# Session is auto-imported with trace.zip and network requests
-```
-
-### Option 2: Import existing trace.zip
-
-```bash
+# Import the trace
 uv run browser-agents import-trace ~/Downloads/trace.zip
 ```
+
+This captures user actions (clicks, typing, navigation) along with network requests.
 
 ## Replay
 

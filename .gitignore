@@ -21,3 +21,18 @@ wheels/
 
 # Recordings (keep .gitkeep but ignore actual recordings)
 recordings/*.jsonl
+
+# Trace files
+*.trace.zip
+api_test_trace.zip
+hn_trace.zip
+recording_trace.zip
+
+# Session data
+sessions/sess_*/
+
+# Recorder extension (build locally)
+recorder/
+
+# Claude temp files
+tmpclaude-*-cwd

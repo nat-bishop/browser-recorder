@@ -20,7 +20,10 @@
       "mcp__langfuse-docs__searchLangfuseDocs",
       "mcp__docs-langchain__SearchDocsByLangChain",
       "Bash(find:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(unzip:*)",
+      "Bash(python:*)",
+      "Bash(git add:*)"
     ]
   }
 }

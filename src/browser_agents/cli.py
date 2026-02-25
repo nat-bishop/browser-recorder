@@ -1,6 +1,7 @@
 """CLI for browser-agents session recording and playback.
 
 Usage:
+    browser-agents launch-chrome             Launch Chrome with recorder extension
     browser-agents import-trace <file>       Import from playwright-crx trace.zip
     browser-agents import-session <file>     Import session from Chrome extension
     browser-agents replay-session <path>     Replay a session
@@ -320,100 +321,52 @@ def import_trace_cmd(
         raise typer.Exit(1)
 
 
-@app.command(name="record")
-def record(
-    port: int = typer.Option(9222, "--port", "-p", help="Chrome debugging port"),
-    output: Path = typer.Option(
-        Path("recording_trace.zip"), "--output", "-o", help="Output trace file path"
-    ),
-    auto_import: bool = typer.Option(
-        True, "--import/--no-import", help="Automatically import trace to sessions"
-    ),
-    output_dir: Path = typer.Option(
-        Path("sessions"), "--sessions", "-s", help="Sessions directory for import"
-    ),
-) -> None:
-    """Record browser actions via Chrome DevTools Protocol.
+def _find_extension_path() -> Path | None:
+    """Find the playwright-crx recorder extension path.
 
-    Connects to a running Chrome instance, starts tracing, waits for you to
-    perform actions, then saves the trace when you press Enter.
+    Searches for the extension in:
+    1. Relative to this file (project_root/recorder/extension/dist)
+    2. Relative to current working directory
 
-    Prerequisites:
-        Launch Chrome with: chrome --remote-debugging-port=9222
-        Or use: browser-agents launch-chrome
-
-    Examples:
-        browser-agents record
-        browser-agents record --port 9223
-        browser-agents record -o my_trace.zip --no-import
+    Returns:
+        Path to extension directory, or None if not found.
     """
+    # Check relative to this file (works in dev and installed scenarios)
+    cli_path = Path(__file__).parent
+    project_root = cli_path.parent.parent
+    extension_path = project_root / "recorder" / "extension" / "dist"
 
-    async def record_impl() -> None:
-        from playwright.async_api import async_playwright
+    if extension_path.exists() and (extension_path / "manifest.json").exists():
+        return extension_path
 
-        async with async_playwright() as p:
-            typer.echo(f"Connecting to Chrome on port {port}...")
-            try:
-                browser = await p.chromium.connect_over_cdp(f"http://localhost:{port}")
-            except Exception as e:
-                typer.echo(f"Failed to connect to Chrome: {e}", err=True)
-                typer.echo(
-                    "\nMake sure Chrome is running with --remote-debugging-port=9222"
-                )
-                typer.echo("Or run: browser-agents launch-chrome")
-                raise typer.Exit(1)
+    # Fallback: check cwd
+    cwd_extension = Path.cwd() / "recorder" / "extension" / "dist"
+    if cwd_extension.exists() and (cwd_extension / "manifest.json").exists():
+        return cwd_extension
 
-            contexts = browser.contexts
-            if not contexts:
-                typer.echo("No browser contexts found. Open a tab in Chrome first.")
-                raise typer.Exit(1)
-
-            context = contexts[0]
-            try:
-                typer.echo("Starting trace recording...")
-                await context.tracing.start(
-                    screenshots=True, snapshots=True, sources=True
-                )
-
-                typer.echo("\n" + "=" * 50)
-                typer.echo("RECORDING - Perform your actions in the browser")
-                typer.echo("=" * 50)
-                typer.echo("\nPress ENTER when done to stop recording...")
-
-                # Wait for user input (blocking)
-                await asyncio.get_event_loop().run_in_executor(None, input)
-
-                typer.echo(f"\nStopping trace and saving to: {output}")
-                await context.tracing.stop(path=str(output))
-            finally:
-                await browser.disconnect()
-
-    asyncio.run(record_impl())
-
-    typer.echo(f"Recording saved: {output}")
-
-    if auto_import:
-        typer.echo("\nImporting trace...")
-        try:
-            _import_and_save_trace(output, output_dir)
-        except Exception as e:
-            typer.echo(f"Failed to import trace: {e}", err=True)
-            typer.echo("Trace file saved but not imported.")
+    return None
 
 
 @app.command(name="launch-chrome")
 def launch_chrome(
     port: int = typer.Option(9222, "--port", "-p", help="Debugging port"),
     url: str = typer.Option("about:blank", "--url", "-u", help="Initial URL to open"),
+    with_recorder: bool = typer.Option(
+        True, "--recorder/--no-recorder", help="Load playwright-crx recorder extension"
+    ),
 ) -> None:
-    """Launch Chrome with remote debugging enabled.
+    """Launch Chrome with remote debugging and recorder extension.
 
-    Finds Chrome on the system and launches it with --remote-debugging-port
-    so that the record command can connect to it.
+    Finds Chrome on the system and launches it with:
+    - Remote debugging port for CDP connection
+    - Playwright-crx recorder extension (use --no-recorder to disable)
+
+    With the recorder extension loaded, use Shift+Alt+R to start/stop recording.
+    Save the trace.zip and import with: browser-agents import-trace <path>
 
     Examples:
-        browser-agents launch-chrome
         browser-agents launch-chrome --url https://example.com
+        browser-agents launch-chrome --no-recorder  # Without extension
         browser-agents launch-chrome --port 9223
     """
     import subprocess
@@ -458,12 +411,32 @@ def launch_chrome(
     typer.echo(f"Launching Chrome with debugging port {port}...")
     typer.echo(f"  Executable: {chrome_exe}")
 
+    # Find recorder extension if requested
+    extension_path = None
+    if with_recorder:
+        extension_path = _find_extension_path()
+        if extension_path:
+            typer.echo(f"  Recorder extension: {extension_path}")
+        else:
+            typer.echo("  Warning: Recorder extension not found (no action capture)")
+            typer.echo("    Build with: cd recorder && npm install && npm run build")
+
     cmd = [
         str(chrome_exe),
         f"--remote-debugging-port={port}",
         "--user-data-dir=" + str(Path.home() / ".browser-agents" / "chrome-profile"),
-        url,
     ]
+
+    # Add extension loading flags
+    if extension_path:
+        cmd.extend(
+            [
+                f"--disable-extensions-except={extension_path}",
+                f"--load-extension={extension_path}",
+            ]
+        )
+
+    cmd.append(url)
 
     # Launch Chrome in background
     try:
@@ -479,8 +452,17 @@ def launch_chrome(
         typer.echo(f"Failed to launch Chrome: {e}", err=True)
         raise typer.Exit(1)
 
-    typer.echo("\nChrome launched! Now run:")
-    typer.echo("  browser-agents record")
+    typer.echo("\nChrome launched!")
+    if extension_path:
+        typer.echo("\n" + "=" * 50)
+        typer.echo("  Press Shift+Alt+R to START/STOP recording")
+        typer.echo("=" * 50)
+        typer.echo("\nAfter recording:")
+        typer.echo("  1. Save trace.zip from the recorder panel")
+        typer.echo("  2. Import: browser-agents import-trace <path>")
+    else:
+        typer.echo("\nNote: Recorder extension not loaded. Recording is not available.")
+        typer.echo("Run without --no-recorder to enable recording.")
 
 
 @app.command(name="convert-session")
